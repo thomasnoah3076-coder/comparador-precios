@@ -1,8 +1,8 @@
 import sqlite3 # 1ro se importa la librería sqlite3 para poder trabajar con bases de datos SQLite.
-from config.config import DB_PATH
+from config.settings import DB_PATH_TRACKER
 
 def init_sqlite_db():
-    conexion = sqlite3.connect(DB_PATH) # 2do se conecta al módulo que previamente creamos (en este caso le pasamos la ruta donde se encuentra la base de datos).
+    conexion = sqlite3.connect(DB_PATH_TRACKER) # 2do se conecta al módulo que previamente creamos (en este caso le pasamos la ruta donde se encuentra la base de datos).
     cursor = conexion.cursor() # 3ro se crea un cursor. Que es un objeto que utilizaremos, para ejecutar las sentencias SQL y obtener resultados de la base de datos. 
 
     cursor.executescript('''
