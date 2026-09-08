@@ -13,7 +13,7 @@ class BaseScraper(ABC):
     Retorna:
     - str: El contenido HTML de la página web.
     Funcionamiento:
-    1. Se inicia un contexto de Playwright utilizando sync_playwright() al cual llamamos 'p'.
+    1. Se inicia un objeto de Playwright utilizando sync_playwright() al cual llamamos 'p'.
     2. Se lanza un navegador Chromium en modo no oculto (headless=False).
     3. Se crea una nueva página en el navegador.
     4. Se navega a la URL especificada utilizando page.goto(url).
