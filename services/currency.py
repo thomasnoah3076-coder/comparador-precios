@@ -70,7 +70,3 @@ def create_json(DB_PATH_EXCHANGE_RATES, monto):
     with open(DB_PATH_EXCHANGE_RATES, "w", encoding="utf-8") as a_escritura: # El modo w o write tambien sirve para crear un archivo si este no se encuentra
         json.dump([], a_escritura, indent=4, ensure_ascii=False)
     return monto
-
-
-if __name__ == "__main__":
-    currency_converter(100000,"COP","USD")
