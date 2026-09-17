@@ -1,5 +1,6 @@
 import sqlite3 # 1ro se importa la librería sqlite3 para poder trabajar con bases de datos SQLite.
 from config.settings import DB_PATH_TRACKER
+from datetime import date
 
 def init_sqlite_db():
     conexion = sqlite3.connect(DB_PATH_TRACKER) # 2do se conecta al módulo que previamente creamos (en este caso le pasamos la ruta donde se encuentra la base de datos).
@@ -38,6 +39,19 @@ def init_sqlite_db():
     ''') # 4to ejecutamos un script SQL que crea las tablas necesarias para nuestra base de datos.
     conexion.commit() # 5to guardamos definitivamente los cambios realizados.
     conexion.close() # 6to cerramos la conexión con la base de datos.
+# database/queries.py (o donde tengas tu lógica de DB)
+
+
+def ya_se_consulto_hoy(conn, product_id: str) -> bool:
+    cursor = conn.execute(
+        "SELECT fecha FROM Historial_Precios WHERE id = ?",
+        (product_id,)
+    )
+    row = cursor.fetchone()
+    if row is None or row[0] is None:
+        return False
+    ultima_fecha = row[0]  # asumiendo que guardas como 'YYYY-MM-DD'
+    return ultima_fecha == date.today().isoformat()
 
 if __name__ == "__main__":
     init_sqlite_db() # 7mo llamamos a la función init_sqlite_db() para inicializar la base de datos.
