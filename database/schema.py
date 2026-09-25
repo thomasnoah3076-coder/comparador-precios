@@ -42,16 +42,32 @@ def init_sqlite_db():
 # database/queries.py (o donde tengas tu lógica de DB)
 
 
-def ya_se_consulto_hoy(conn, product_id: str) -> bool:
+def ya_se_consulto_hoy(conn, product_id: int) -> bool:
     cursor = conn.execute(
-        "SELECT fecha FROM Historial_Precios WHERE id = ?",
+        "SELECT fecha FROM Historial_Precios WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1",
         (product_id,)
     )
     row = cursor.fetchone()
     if row is None or row[0] is None:
         return False
-    ultima_fecha = row[0]  # asumiendo que guardas como 'YYYY-MM-DD'
+    ultima_fecha = row[0]
     return ultima_fecha == date.today().isoformat()
+
+def obtener_ultimo_registro (conn, product_id: int) -> dict:
+    cursor = conn.execute(
+        "SELECT precio_local, moneda_local, precio_usd, fecha FROM Historial_Precios WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1",
+        (product_id,)
+    )
+    row = cursor.fetchone()
+    if row is None:
+       return {}
+    return {
+        "precio_local": row[0],
+        "moneda_local": row[1],
+        "precio_usd": row[2],
+        "fecha": row[3]
+    }
+
 
 if __name__ == "__main__":
     init_sqlite_db() # 7mo llamamos a la función init_sqlite_db() para inicializar la base de datos.
