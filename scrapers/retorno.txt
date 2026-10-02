@@ -1,0 +1,9 @@
+{ Retorno de los scrapers
+    "nombre": None,
+    "precio": None,
+    "moneda": None,
+    "url": url,
+    "vendedor": None,
+    "ventas": None,
+    "rating": None,
+}
