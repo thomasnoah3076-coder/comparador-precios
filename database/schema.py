@@ -11,7 +11,7 @@ def init_sqlite_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
             url TEXT NOT NULL,
-            tienda TEXT NOT NULL,
+            vendedor TEXT NOT NULL,
             categoria TEXT NOT NULL,
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -32,15 +32,12 @@ def init_sqlite_db():
             nombre_vendedor TEXT NOT NULL,
             total_ventas INTEGER NOT NULL,
             calificacion_promedio REAL NOT NULL,
-            porcentaje_reputacion REAL NOT NULL,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (producto_id) REFERENCES Productos(id)
         );
     ''') # 4to ejecutamos un script SQL que crea las tablas necesarias para nuestra base de datos.
     conexion.commit() # 5to guardamos definitivamente los cambios realizados.
     conexion.close() # 6to cerramos la conexión con la base de datos.
-# database/queries.py (o donde tengas tu lógica de DB)
-
 
 def ya_se_consulto_hoy(conn, product_id: int) -> bool:
     cursor = conn.execute(
