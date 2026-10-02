@@ -7,7 +7,7 @@ from config.settings import (
 import json
 from datetime import date, datetime
 
-def currency_converter(monto, moneda_origen, moneda_destino ):
+def currency_converter(monto, moneda_origen, moneda_destino):
     try:
         DB_PATH_EXCHANGE_RATES.parent.mkdir(parents=True, exist_ok=True)  # Crea la carpeta si no existe
         if DB_PATH_EXCHANGE_RATES.is_file(): # Verifica la existencia de un archivo.
@@ -62,7 +62,7 @@ def load_rates (DB_PATH_EXCHANGE_RATES):
                 json.dump(lista, a_escritura, indent=4, ensure_ascii=False)
             print("Tasa de cambio nueva ha sido guardada.")
             return USD_en_COP, COP_en_USD
-        else: 
+        else:
             print(f"Error al obtener la tasa de cambio: {respuesta.status_code}")
 
 def create_json(DB_PATH_EXCHANGE_RATES, monto):
