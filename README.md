@@ -392,8 +392,6 @@ Observadas de forma consistente en el código actual:
 
 ## Licencia y créditos
 
-No se encontró ningún archivo `LICENSE` en el repositorio. `TODO:` el autor debe definir y añadir una licencia explícita (por ejemplo, MIT, si el proyecto se comparte públicamente).
-
 **Autor:** Thomas Chaparro (`thomasnoah3076-coder`), identificado como autor de la totalidad de los commits del repositorio.
 
 ## Pendientes de documentar
