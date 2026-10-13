@@ -50,21 +50,46 @@ def ya_se_consulto_hoy(conn, product_id: int) -> bool:
     ultima_fecha = row[0]
     return ultima_fecha == date.today().isoformat()
 
-def obtener_ultimo_registro (conn, product_id: int) -> dict:
-    cursor = conn.execute(
-        "SELECT precio_local, moneda_local, precio_usd, fecha FROM Historial_Precios WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1",
-        (product_id,)
-    )
-    row = cursor.fetchone()
-    if row is None:
-       return {}
-    return {
-        "precio_local": row[0],
-        "moneda_local": row[1],
-        "precio_usd": row[2],
-        "fecha": row[3]
-    }
 
+def obtener_ultimo_registro(conn, product_id: int) -> dict:
+    query = """
+        SELECT 
+            p.nombre,
+            (SELECT precio_local FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS precio,
+            (SELECT moneda_local FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS moneda,
+            p.url,
+            p.vendedor,
+            (SELECT total_ventas FROM Metricas_Vendedor WHERE producto_id = p.id ORDER BY fecha_registro DESC LIMIT 1) AS ventas,
+            (SELECT calificacion_promedio FROM Metricas_Vendedor WHERE producto_id = p.id ORDER BY fecha_registro DESC LIMIT 1) AS rating
+        FROM Productos p
+        WHERE p.id = ?
+    """
+
+    cursor = conn.execute(query, (product_id,))
+    row = cursor.fetchone()
+
+    # Si no se encuentra el producto en la tabla principal
+    if row is None:
+        return {
+            "nombre": None,
+            "precio": None,
+            "moneda": None,
+            "url": None,
+            "vendedor": None,
+            "ventas": None,
+            "rating": None
+        }
+
+    # Si se encuentra, mapeamos los resultados al diccionario solicitado
+    return {
+        "nombre": row[0],
+        "precio": row[1],
+        "moneda": row[2],
+        "url": row[3],
+        "vendedor": row[4],
+        "ventas": row[5],
+        "rating": row[6]
+    }
 
 if __name__ == "__main__":
     init_sqlite_db() # 7mo llamamos a la función init_sqlite_db() para inicializar la base de datos.
