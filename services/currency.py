@@ -14,20 +14,28 @@ def currency_converter(monto, moneda_origen, moneda_destino):
             try:
                 USD_en_COP, COP_en_USD = load_rates (DB_PATH_EXCHANGE_RATES)
                 
-                amount_calculate(monto, moneda_origen, USD_en_COP, COP_en_USD)
+                resultado = amount_calculate(monto, moneda_origen, USD_en_COP, COP_en_USD)
                 
                 print(f"Un dolar es igual a: {USD_en_COP} pesos colombianos.")
+                # Devuelve el monto convertido (si no hubo conversión, amount_calculate
+                # devuelve el monto original), evitando que la función retorne None.
+                return resultado
             except json.decoder.JSONDecodeError:
                 print("El archivo json esta corrupto o vacio.")
                 return monto
             except FileNotFoundError:
                 print("El archivo no fue encontrado.")
-                return monto 
+                return monto
             
         else:
             create_json(DB_PATH_EXCHANGE_RATES, monto)
+            # El archivo acaba de crearse vacío: aún no hay tasas que aplicar,
+            # se devuelve el monto sin convertir (degradación elegante).
+            return monto
     except Exception as e:
         print(f"Error al procesar la respuesta: {e}")
+        # Degradación elegante: ante cualquier error se devuelve el monto sin convertir.
+        return monto
 
 def amount_calculate (monto, moneda_origen, USD_en_COP, COP_en_USD):
     match moneda_origen:

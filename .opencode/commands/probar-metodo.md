@@ -11,7 +11,7 @@ Vas a probar el método de Python llamado `$ARGUMENTS`.
 
 2. **Lee el método y su contexto.** Entiende qué recibe, qué devuelve, sus dependencias y sus casos límite.
 
-3. **Revisa sintaxis e importación.** Ejecuta `python -m py_compile <archivo>`.
+3. **Revisa sintaxis e importación.** Ejecuta `.venv/bin/python -m py_compile <archivo>` (usa el intérprete del entorno virtual del proyecto).
 
 4. **Crea un archivo de prueba temporal** llamado `test_tmp_$ARGUMENTS.py` con pruebas `pytest` que cubran:
    - Casos normales.
@@ -19,7 +19,7 @@ Vas a probar el método de Python llamado `$ARGUMENTS`.
    - Entradas inválidas que deberían lanzar excepción.
    Usa `unittest.mock` o `monkeypatch` para aislar internet, archivos o bases de datos.
 
-5. **Ejecuta las pruebas** con `pytest -v test_tmp_$ARGUMENTS.py`. Si `pytest` no está instalado, instálalo.
+5. **Ejecuta las pruebas** con `.venv/bin/python -m pytest -v test_tmp_$ARGUMENTS.py` (¡`pytest` NO está en el PATH global del sistema; usa siempre el intérprete de `.venv`!). Si el venv no tiene pytest, instálalo con `.venv/bin/python -m pip install pytest`. Si `$ARGUMENTS` contiene espacios o typos, sustitúyelos por guiones bajos en el nombre del archivo (ver `AGENTS.md` §6.4).
 
 6. **Decide qué hacer con el archivo temporal:**
    - **Si TODAS las pruebas pasan:** elimina `test_tmp_$ARGUMENTS.py` y cualquier otro archivo auxiliar que hayas creado (incluida la carpeta `__pycache__` y `.pytest_cache` si las generaste tú). Informa que el método funciona correctamente.

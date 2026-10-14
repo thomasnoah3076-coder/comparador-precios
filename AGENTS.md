@@ -7,7 +7,7 @@ Este documento define el comportamiento, los roles y el flujo de trabajo estrict
 *   **Escala y Volumen:** Es un proyecto de **carácter personal**. Maneja un volumen de datos bajo/moderado (SQLite es suficiente), pero requiere **alta robustez** en la obtención de datos debido a los sistemas anti-scraping (especialmente de Amazon).
 *   **Arquitectura:** Sigue el patrón *Template Method*. 
     *   El orquestador (`BaseScraper`) maneja la infraestructura: Playwright, base de datos SQLite, control de flujo y detección de bloqueos (CAPTCHAs).
-    *   Los especialistas (ej. `AmazonScraper`) manejan únicamente la extracción de datos desde el DOM usando selectores específicos y retornan un contrato de datos estricto (título, precio limpio numérico, URL, moneda, disponibilidad).
+    *   Los especialistas (ej. `AmazonScraper`) manejan únicamente la extracción de datos desde el DOM usando selectores específicos y retornan un contrato de datos estricto (`titulo`, `precio`, `moneda`, `url`, `vendedor`, `ventas`, `calificacion_promedio`).
 *   **Stack Tecnológico:** Python, SQLite, Playwright, BeautifulSoup, python-dotenv.
 
 ## 2. Perfil del Usuario (El Director)
@@ -43,9 +43,10 @@ Para garantizar la continuidad y evitar que la IA alucine o repita errores, **CA
     *   Si durante el desarrollo se descubren nuevas reglas arquitectónicas o patrones recurrentes, la IA debe sugerir añadir una regla a este mismo archivo `AGENTS.md`.
 
 ## 5. Estado Actual del Proyecto (Punto de Partida)
-*   *Scrapers:* Migrando el enfoque hacia un único scraper de Amazon inicial para validar el flujo completo end-to-end.
-*   *Bloqueo principal resuelto lógicamente:* Se separó la responsabilidad del `BaseScraper` (maneja BD y Playwright) y el `AmazonScraper` (solo extrae datos del DOM).
-*   *Pendiente Inmediato:* Implementar la detección de bloqueos de Amazon (CAPTCHAs) en el `BaseScraper` antes de extraer datos, y construir el `AmazonScraper` para que devuelva el contrato de datos limpio.
+*   *Scrapers:* Foco exclusivo en el scraper de Amazon (`AmazonScraper`) para validar el flujo completo end-to-end.
+*   *Bloqueo principal resuelto lógicamente:* Se separó la responsabilidad del `BaseScraper` (maneja BD y Playwright) y del `AmazonScraper` (solo extrae datos del DOM).
+*   *Completado:* Detección de bloqueos de Amazon (CAPTCHAs) en `BaseScraper` (`verificacion_de_estado_html`), y `AmazonScraper` devolviendo el contrato de datos limpio.
+*   *Pendiente Inmediato:* Implementar la persistencia en SQLite (roadmap paso 3 de `MEMORY.md`): los datos scrapeados aún no se insertan en la BD.
 
 ## 6. Diagnóstico y Reporte de Errores (Reglas Obligatorias)
 Cuando se ejecute un método (p. ej. `/probar-metodo`) y algo falle, el agente DEBE aplicar estas reglas. El objetivo es que el Director entienda el **QUÉ falló, POR QUÉ y CÓMO se arregla** sin tener que leer el código.
@@ -65,10 +66,8 @@ Cuando se ejecute un método (p. ej. `/probar-metodo`) y algo falle, el agente D
 
 ### 6.3 Errores conocidos del proyecto (anticiparlos, no redescubrirlos)
 Estos patrones han fallado ya una vez. Verificarlos **antes** de concluir que un método funciona:
-*   **`__init__.py` mal nombrado:** hay paquetes con `___init__.py` (tres guiones bajos) en `scrapers/`, `database/` y `config/`. Al no existir `__init__.py` real, `scrapers` es un paquete de espacio de nombres y `from scrapers import BaseScraper` resuelve al **módulo**, no a la clase → `class AmazonScraper(BaseScraper)` revienta con `TypeError: module() takes at most 2 arguments (3 given)`.
-*   **Nombrar la clase igual que el archivo:** el archivo es `BaseScraper.py` pero la clase se llama `ScraperBase`. Cualquier `import` que asuma lo contrario falla.
-*   **`async` vs síncrono:** `ScraperBase.obtener_dom` es `async`. Si un método síncrono hace `self.obtener_dom(url)` sin `await`, no obtiene HTML: obtiene una corrutina y el fallo aparece más tarde dentro de BeautifulSoup. Verificar con `inspect.iscoroutinefunction`.
-*   **Contrato de datos (MEMORY.md §4):** las claves deben ser `title`, `price`, `currency`, `url`, `available`. Devolver `nombre`/`precio`/`moneda`/`vendedor`/`ventas`/`rating` es un **error de lógica**, aunque no lance excepción.
+*   **`async` vs síncrono:** `BaseScraper.obtener_dom` es `async`. Si un método síncrono hace `self.obtener_dom(url)` sin `await`, no obtiene HTML: obtiene una corrutina y el fallo aparece más tarde dentro de BeautifulSoup. Verificar con `inspect.iscoroutinefunction`.
+*   **Contrato de datos (MEMORY.md §4):** las claves deben ser `titulo`, `precio`, `moneda`, `url`, `vendedor`, `ventas`, `calificacion_promedio`. Devolver claves en inglés (`title`/`price`/...) o variantes propias (`nombre`/`rating`) es un **error de lógica**, aunque no lance excepción.
 *   **Llamar a métodos inexistentes:** comprobar con `hasattr` que todo lo invocado en `extraer_datos` existe en la clase (p. ej. `extraer_ventas_y_rating` no existe).
 *   **Comparaciones mal escritas:** `any(lista) in texto` lanza `TypeError: 'in <string>' requires string as left operand, not bool`. Lo correcto es `any(palabra in texto for palabra in lista)`.
 *   **`None` implícito:** una función `-> str` sin `return` en todas las ramas devuelve `None`; usar `""` o `None` de forma **explícita** y documentada.
@@ -76,9 +75,7 @@ Estos patrones han fallado ya una vez. Verificarlos **antes** de concluir que un
 *   **`.venv` roto / intérprete inexistente:** antes de ejecutar cualquier prueba, verificar que `.venv/bin/python` existe de verdad y que su versión coincide con `lib/pythonX.Y/site-packages` (en Oct 2026 el venv apuntaba a python3.12 mientras los paquetes —`greenlet` compilado— eran de python3.11, y no había `python3.11` en el sistema → `ModuleNotFoundError: greenlet._greenlet`). Es un **fallo de entorno**, no del método: declararlo aparte y no culpar al código.
 
 Patrones detectados en la **2ª ronda de pruebas** (Oct 2026, `AmazonScraper.extraer_datos` async):
-*   **Corrutina sin `await` en el orquestador:** `BaseScraper.obtener_datos` hace `datos = self.extraer_datos(...)` y acto seguido `datos["origen"] = ...`. Como el método ahora es `async`, esto lanza `TypeError: 'coroutine' object does not support item assignment` **y** la corrutina queda sin esperar (`RuntimeWarning: coroutine ... was never awaited`). Verificar SIEMPRE que toda llamada a un método `async` lleve `await`.
-*   **Doble navegación:** `obtener_datos` baja el DOM con `obtener_dom(url)` y se lo pasa a `extraer_datos`, pero `extraer_datos` vuelve a llamar a `obtener_dom(url)`. Se navega dos veces y, encima, se le pasa un HTML donde la firma espera una URL.
-*   **Firma abstracta ≠ firma concreta:** la abstracta es `extraer_datos(self, dom_html: str)` y la concreta `extraer_datos(self, url: str)`. Python no lo comprueba (no lanza), así que **solo una prueba de integración lo delata**: clasificarlo como error de lógica/arquitectura, no de ejecución.
+*   **Doble navegación:** `obtener_datos` baja el DOM con `obtener_dom(url)` y se lo pasa a `extraer_datos`, pero `extraer_datos` vuelve a llamar a `obtener_dom(url)`. Se navega dos veces y, encima, se le pasa un HTML donde la firma espera una URL. *(Verificado corregido: hoy `obtener_datos` solo hace `await self.extraer_datos(url)` y la extracción navega una única vez.)*
 *   **Conversión numérica sin podar el texto:** `float("1,234.99")`, `int("1234 ratings")` y `float("4.7 de 5")` lanzan `ValueError`. Antes de convertir: quitar comas de miles, y quedarse con el primer grupo numérico vía `re.match(r"\d+(?:[.,]\d+)?", texto)`.
 *   **Condicional demasiado exigente:** exigir `if tag_entero and tag_decimal` descarta precios válidos enteros ("29" sin fracción). Si falta la parte decimal, asumir `".00"`.
 *   **Comparación de mayúsculas/minúsculas asimétrica:** `formato_cop` contiene `'COP'` pero se compara contra `moneda.lower()`, que es `'cop'` → la moneda COP **nunca** se detecta. Normalizar ambos lados (`lower()`) antes de comparar.
@@ -94,6 +91,12 @@ Patrones detectados en la **3ª ronda de pruebas** (Oct 2026, `AmazonScraper.ext
 *   **`0` explícito ≠ `None`:** `"0 de 5"` → `0.0` (rating real) y `"Sin reseñas"`/tag ausente → `None`. Verificar **ambas** ramas para no confundir "cero de cinco" con "sin dato".
 *   **Verificado corregido:** `extraer_calificacion_promedio` ya **no** devuelve `0` cuando falta el rating; devuelve `None` (confirmado con `test_sin_rating_devuelve_none_no_cero`). El patrón de la 2ª ronda *"`0` como sin dato"* quedó resuelto para este método.
 *   **Selectores por clase genérica = frágiles entre productos:** `span.a-size-small.a-color-base` (rating) **no existe en algunos productos** y el método falla al cambiar de producto. Para el rating usar el **`data-hook` oficial de Amazon** `span[data-hook="rating-out-of-text"]` (texto `"4.7 out of 5"`, 1 coincidencia estable). Regla general: preferir atributos **`data-hook`** de Amazon sobre clases CSS genéricas, y **verificar contra el DOM real de varios productos** (Playwright) antes de concluir que un selector es robusto.
+
+Patrones detectados en la **4ª ronda** (Oct 2026, auditoría código vs documentación, 13 pruebas en verde):
+*   **`TIMESTAMP` vs `date` en comparaciones:** `fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP` guarda `'2026-10-14 12:15:20'`, y compararlo con `date.today().isoformat()` (`'2026-10-14'`) con `==` **nunca es verdadero** → `ya_se_consulto_hoy()` devolvía siempre `False` y la caché diaria estaba inoperante. Corregido con `.startswith(hoy)`. Regla: ante fechas de BD, comparar solo la parte de fecha o usar `DATE(fecha)` en SQL.
+*   **Claves divergentes entre caminos del orquestador:** `obtener_datos()` puede devolver el registro de la BD o el del scraping; si un camino usa `nombre`/`rating` y el otro `titulo`/`calificacion_promedio`, `main.py` imprime claves distintas según el origen. Corregido en `obtener_ultimo_registro()`. Regla: **ambos caminos deben producir exactamente las mismas claves** (contrato MEMORY §4) y cubrirlo con una prueba que compare los dos diccionarios.
+*   **Firma abstracta sync ≠ firma concreta async:** `@abstractmethod def extraer_datos` con `async def extraer_datos` en la hija no lanza error en Python, pero `await` en el orquestador rompería con cualquier implementación síncrona futura. Corregido: la abstracta ahora es `async def`. Verificar con `inspect.iscoroutinefunction` en **ambas**.
+*   **Función que imprime pero no retorna:** `currency_converter()` ejecutaba `amount_calculate(...)` sin `return`, así que el valor convertido solo aparecía por consola y la función devolvía `None` (el ejemplo del README obtenía `None`). Regla: si la función promete un resultado (`-> float` o se asigna a una variable), **todas** las ramas felices deben llevar `return` explícito.
 
 ### 6.4 Reglas de los archivos de prueba temporales
 *   Un nombre de archivo **no puede contener `/` ni espacios**: si la consigna pide una URL en el nombre, sanitizar y guardar la URL dentro del archivo; si el nombre viene del método con espacios/typos (p. ej. `test_tmp_extrear calificacion promedio ... .py`), pasar los espacios a guiones bajos —**un módulo Python/pytest no puede tener espacios: rompe la recolección**— y dejar la equivalencia en un comentario cabecera.

@@ -46,16 +46,17 @@ Es un **proyecto personal de un solo desarrollador**, sin intención declarada d
 
 - Esquema de base de datos SQLite con tres tablas: `Productos`, `Historial_Precios`, `Metricas_Vendedor` (`database/schema.py`).
 - Conversión de montos entre COP y USD, con caché diario de tasas de cambio en un archivo JSON local (`services/currency.py`, `database/exchange_rates.json`).
-- Contrato abstracto de scraper (`BaseScraper`) con extracción de HTML renderizado vía Playwright (`scrapers/BaseScraper.py`).
-- Implementación concreta de scraper para eBay que extrae título, precio, moneda, vendedor, ventas y rating (`scrapers/EbayScraper.py`).
+- Contrato común de scraper (`BaseScraper`) con extracción de HTML renderizado vía Playwright **asíncrono** (`scrapers/BaseScraper.py`).
+- Implementación concreta de scraper para **Amazon** (`scrapers/AmazonScraper.py`) que extrae `titulo`, `precio`, `moneda`, `url`, `vendedor`, `ventas` y `calificacion_promedio`, con detección de bloqueos (CAPTCHAs) y fijación de ubicación de entrega (Miami) en el orquestador.
+- Punto de entrada funcional (`main.py`) que consulta un producto de Amazon de extremo a extremo (`asyncio` + `obtener_datos()`).
 - Función para verificar si un producto ya fue consultado en el día actual, como base para controlar el volumen de peticiones (`database/schema.py::ya_se_consulto_hoy`).
 - Carga de variables de entorno sensibles desde `.env`, excluido de control de versiones (`config/settings.py`).
+- `playwright-stealth` integrado en el orquestador (`Stealth().apply_stealth_async(page)`).
 
 **Planificado, mencionado en diseño o en documentación de contexto, pero AÚN NO presente en el código del repositorio** (ver [Roadmap](#roadmap)):
 
-- Scraper para Amazon (`scrapers/amazon.py` o equivalente).
-- Orquestador general (`main.py` existe pero está vacío).
-- Analizador de ofertas que compare el precio actual contra el historial.
+- Conexión del scraper con SQLite: los datos scrapeados **aún no se insertan** en la base de datos (`INSERT` pendiente).
+- Analizador de ofertas que compare el precio actual contra el historial (`PRICE_DROP_THRESHOLD` aún sin consumir).
 - Módulo de notificaciones por Telegram (`python-telegram-bot` está en `requirements.txt` pero no se usa en ningún módulo todavía).
 - Rotación de proxies residenciales, delays aleatorios y rotación de User-Agents para scraping en segundo plano sostenido.
 
@@ -65,10 +66,10 @@ Es un **proyecto personal de un solo desarrollador**, sin intención declarada d
 
 Evidencia concreta del estado:
 
-- `main.py` existe pero está vacío: no hay ningún punto de entrada que conecte scraping, conversión de divisas, base de datos y notificaciones.
-- El único scraper funcional (`EbayScraper`) se ejecuta actualmente con Playwright en modo **headful** (`headless=False`), es decir, requiere una interfaz gráfica visible — no está listo para correr como proceso en segundo plano en un servidor.
-- No existen pruebas automatizadas, ni configuración de integración continua.
-- No hay módulo de notificaciones ni de análisis de ofertas implementado.
+- `main.py` está implementado: punto de entrada que conecta el scraper de Amazon (`asyncio` + `obtener_datos()`) e imprime el resultado. AÚN no conecta conversión de divisas, persistencia en base de datos ni notificaciones.
+- El scraper (`AmazonScraper` + `BaseScraper`) se ejecuta con Playwright en modo **headless** (`headless=True`) y con `playwright-stealth`, es decir, apto para segundo plano gráfico; sigue sin tratarse como un proceso desatendido probado a volumen.
+- No existen pruebas automatizadas versionadas (las baterías se crean y borran como temporales según `AGENTS.md` §6.4), ni configuración de integración continua.
+- No hay módulo de notificaciones ni de análisis de ofertas implementados, y los datos scrapeados aún no se insertan en SQLite.
 
 ## Stack tecnológico
 
@@ -76,51 +77,56 @@ Evidencia concreta del estado:
 |---|---|---|
 | **Python** | Lenguaje principal de todo el proyecto | Ecosistema maduro para scraping, manejo de datos y APIs |
 | **SQLite** (`sqlite3`, stdlib) | Persistencia de productos, historial de precios y métricas de vendedor | Cero configuración, base de datos como archivo único, adecuada para un proyecto de un solo usuario |
-| **Playwright** (`playwright.sync_api`) | Renderizado de páginas con contenido dinámico (JavaScript) antes de extraer datos | `requests` + `BeautifulSoup` resultó insuficiente contra Mercado Libre y eBay por carga dinámica de contenido |
+| **Playwright** (`playwright.async_api`) | Renderizado de páginas con contenido dinámico (JavaScript) antes de extraer el DOM | `requests` + `BeautifulSoup` resultó insuficiente contra Mercado Libre y eBay por carga dinámica de contenido |
 | **BeautifulSoup4** | Parseo del HTML ya renderizado por Playwright, búsqueda por selectores CSS | Estándar de facto en Python para extracción de datos de HTML |
 | **requests** | Consumo de la API de tasas de cambio en `services/currency.py` | Cliente HTTP simple para APIs que no requieren renderizado |
 | **python-dotenv** | Carga de variables sensibles desde `.env` | Evita hardcodear tokens y claves en el código fuente |
 | **python-telegram-bot** | Declarado en `requirements.txt` para el futuro módulo de notificaciones | Aún sin uso en el código; ver [Roadmap](#roadmap) |
 
-> `playwright-stealth` se ha evaluado en discusiones de diseño para mitigar la detección de automatización, pero **no está en `requirements.txt` ni en ningún módulo del repositorio actual**.
+> `playwright-stealth` **sí está** en `requirements.txt` y se usa en `scrapers/BaseScraper.py` (`Stealth().apply_stealth_async(page)`) para mitigar la detección de automatización.
 
 ## Arquitectura del sistema
 
-El proyecto sigue un patrón de **scrapers intercambiables sobre un contrato común**, más un conjunto de servicios independientes (divisas, base de datos) que aún no están conectados entre sí por un orquestador.
+El proyecto sigue un patrón **Template Method**: un orquestador común (`BaseScraper`) posee la infraestructura (Playwright, base de datos, control de flujo, detección de bloqueos) y los especialistas de tienda solo extraen datos del DOM. Los servicios de divisas y base de datos aún no están conectados entre sí por un analizador ni notificaciones.
 
 ```
-┌─────────────────────┐
-│   BaseScraper (ABC)  │  scrapers/BaseScraper.py
-│  - extraer_html()    │  (Playwright sync, headful)
-│  - extraer_datos()   │  (método abstracto)
-└──────────┬───────────┘
+┌──────────────────────────────┐
+│      BaseScraper (ABC)        │  scrapers/BaseScraper.py
+│  - obtener_datos(id, url)     │  (consulta BD o delega extracción)
+│  - obtener_dom(url)           │  (Playwright async, headless + stealth,
+│  - verificacion_de_estado_html│   ubicación Miami, anti-CAPTCHA)
+│  - extraer_datos(url)         │  (abstracto, async)
+└──────────┬───────────────────┘
            │ hereda
-┌──────────▼───────────┐
-│    EbayScraper        │  scrapers/EbayScraper.py
-│  extraer_datos(url)   │  → dict: nombre, precio, moneda,
-│                       │    url, vendedor, ventas, rating
-└───────────────────────┘
+┌──────────▼───────────────────┐
+│      AmazonScraper            │  scrapers/AmazonScraper.py
+│  extraer_datos(url) async     │  → dict: titulo, precio, moneda,
+│                               │    url, vendedor, ventas,
+│                               │    calificacion_promedio
+└───────────────────────────────┘
 
 ┌───────────────────────┐        ┌──────────────────────────┐
 │ services/currency.py   │        │  database/schema.py       │
 │ currency_converter()   │        │  init_sqlite_db()          │
 │ (caché en JSON diario) │        │  ya_se_consulto_hoy()      │
-└───────────────────────┘        └──────────────────────────┘
+└───────────────────────┘        │  obtener_ultimo_registro() │
+                                 └──────────────────────────┘
 
 ┌───────────────────────┐
 │   config/settings.py   │  Carga .env, rutas, umbral de oferta,
 │                        │  IDs de chat de Telegram por categoría
 └───────────────────────┘
 
-              main.py  ← VACÍO. No existe orquestación real todavía.
+     main.py  ← Punto de entrada real: consulta un producto de
+                 Amazon e imprime el resultado (sin INSERT en BD aún).
 ```
 
-**Flujo de datos conceptual** (tal como está diseñado en la documentación de contexto del proyecto, aunque `main.py` todavía no lo implementa):
+**Flujo de datos** (implementado hasta el paso 2; el resto sigue el [Roadmap](#roadmap)):
 
-1. Se define una URL de producto de una tienda soportada.
-2. El scraper concreto (actualmente solo `EbayScraper`) renderiza la página con Playwright y extrae los datos con BeautifulSoup.
-3. `services/currency.py` convierte el precio a la moneda local y/o USD, usando la tasa cacheada del día si ya existe.
-4. Los datos se persisten en `database/tracker.db` (tablas `Productos`, `Historial_Precios`, `Metricas_Vendedor`).
+1. Se define un `PRODUCT_ID` (ASIN) y una URL de producto de Amazon en `main.py`.
+2. `BaseScraper.obtener_datos()` consulta primero la BD: si el producto ya se consultó hoy, devuelve el registro guardado; si no, `AmazonScraper.extraer_datos()` renderiza la página con Playwright y extrae los datos con BeautifulSoup.
+3. *(No implementado)* `services/currency.py` convertiría el precio a la moneda local y/o USD, usando la tasa cacheada del día si ya existe.
+4. *(No implementado)* Los datos se insertarían en `database/tracker.db` (tablas `Productos`, `Historial_Precios`, `Metricas_Vendedor`).
 5. *(No implementado)* Un analizador compararía el precio actual contra el historial para decidir si es una oferta.
 6. *(No implementado)* Un módulo de notificaciones enviaría un mensaje a Telegram, al chat correspondiente según `CHATS_ID` en `config/settings.py`.
 
@@ -129,21 +135,27 @@ El proyecto sigue un patrón de **scrapers intercambiables sobre un contrato com
 ```
 comparador-precios/
 ├── config/
-│   ├── ___init__.py        # ⚠️ nombre con 3 guiones bajos, ver "Pendientes de documentar"
-│   └── settings.py         # Rutas, variables de entorno, umbral de oferta
+│   ├── __init__.py
+│   └── settings.py          # Rutas, variables de entorno, umbral de oferta
 ├── database/
-│   ├── ___init__.py        # ⚠️ mismo problema de nombre
-│   ├── schema.py           # init_sqlite_db() y ya_se_consulto_hoy()
+│   ├── __init__.py
+│   ├── schema.py            # init_sqlite_db(), ya_se_consulto_hoy(), obtener_ultimo_registro()
 │   ├── tracker.db           # Base de datos SQLite real (versionada en git, ver Seguridad)
-│   └── exchange_rates.json # Caché diario de tasas de cambio (generado en ejecución)
+│   └── exchange_rates.json  # Caché diario de tasas de cambio (generado en ejecución)
+├── docs/
+│   └── constitution.md      # Leyes inmutables de desarrollo del proyecto
 ├── scrapers/
-│   ├── ___init__.py        # ⚠️ mismo problema de nombre
-│   ├── BaseScraper.py      # Clase abstracta común a cualquier scraper
-│   └── EbayScraper.py      # Único scraper concreto implementado
+│   ├── __init__.py
+│   ├── BaseScraper.py       # Orquestador abstracto (Playwright async, BD, anti-CAPTCHA)
+│   └── AmazonScraper.py     # Especialista de Amazon (solo extracción del DOM)
 ├── services/
-│   ├── __init__.py         # Correcto (2 guiones bajos)
-│   └── currency.py         # Conversión COP↔USD con caché JSON
-├── main.py                  # Vacío — orquestador pendiente de implementar
+│   ├── __init__.py
+│   └── currency.py          # Conversión COP↔USD con caché JSON
+├── .opencode/commands/      # Comandos del agente (/probar-metodo, /crear_spec)
+├── .agents/skills/          # Roles del agente (@analista-nodos, @auditor-arquitectura)
+├── main.py                  # Punto de entrada: consulta un producto de Amazon
+├── MEMORY.md                # Memoria del proyecto (estado y decisiones)
+├── AGENTS.md                # Directrices para agentes de IA
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -151,7 +163,7 @@ comparador-precios/
 
 ## Requisitos previos
 
-- Python instalado (versión mínima no fijada en el repositorio — `TODO:` confirmar versión objetivo; no hay `pyproject.toml` ni `.python-version`).
+- **Python 3.14.8** (gestionado con pyenv en el entorno actual del proyecto; el repositorio no fija versión con `pyproject.toml` ni `.python-version` — `TODO:` versionar la versión objetivo).
 - `pip` para instalar dependencias.
 - Los navegadores de Playwright instalados localmente (`playwright install`), ya que `scrapers/BaseScraper.py` depende de un binario de Chromium.
 - Un bot de Telegram creado (token y chat IDs) si se desea usar en el futuro el módulo de notificaciones — actualmente `config/settings.py` ya espera estas variables aunque ningún módulo las consuma todavía.
@@ -181,8 +193,8 @@ playwright install chromium
 
 # 5. Crear el archivo .env en la raíz del proyecto (ver tabla de variables abajo)
 
-# 6. Inicializar la base de datos SQLite
-python database/schema.py
+# 6. Inicializar la base de datos SQLite (desde la raíz del proyecto)
+python -m database.schema
 ```
 
 > No existe un archivo `.env.example` en el repositorio. `TODO:` crear uno para facilitar el onboarding, con las claves de la tabla de configuración sin valores reales.
@@ -205,35 +217,37 @@ Adicionalmente, `config/settings.py` define un valor fijo en código (no viene d
 
 | Constante | Valor | Significado |
 |---|---|---|
-| `PRICE_DROP_THRESHOLD` | `0.3` | Caída de precio mínima (30 %) para considerar algo una oferta — aún no consumida por ningún analizador, ya que este módulo no existe todavía |
+| `PRICE_DROP_THRESHOLD` | `0.15` | Caída de precio mínima (15 %) para considerar algo una oferta — aún no consumida por ningún analizador, ya que este módulo no existe todavía |
 
 ## Uso básico y ejemplos
 
 **Inicializar (o reinicializar) el esquema de la base de datos:**
 
 ```bash
-python database/schema.py
+python -m database.schema
 ```
 
 Ejecuta `init_sqlite_db()`, que crea las tablas `Productos`, `Historial_Precios` y `Metricas_Vendedor` en `database/tracker.db`.
 
-**Probar el scraper de eBay de forma manual** (bloque `if __name__ == "__main__":` incluido en el propio archivo, con una URL de ejemplo hardcodeada):
+> ⚠️ Se ejecuta con `-m` desde la raíz del proyecto (`python database/schema.py` falla con `ModuleNotFoundError: No module named 'config'`, porque la raíz no está en `sys.path`). Además, hoy **no es idempotente**: si las tablas ya existen lanza `sqlite3.OperationalError: table Productos already exists` (pendiente de corregir con `CREATE TABLE IF NOT EXISTS`, ver "Pendientes de documentar").
+
+**Ejecutar el punto de entrada (consulta de extremo a extremo contra Amazon):**
 
 ```bash
-python -m scrapers.EbayScraper
+python main.py
 ```
 
-> Se ejecuta con `-m` desde la raíz del proyecto porque `EbayScraper.py` importa `BaseScraper` con una ruta absoluta de paquete (`from scrapers.BaseScraper import BaseScraper`); ejecutarlo como `python scrapers/EbayScraper.py` directamente falla con `ImportError`.
+> Edita `PRODUCT_ID` (ASIN) y `URL_PRODUCTO` al inicio de `main.py`. `main.py` usa `asyncio.run(...)`, así que basta ejecutarlo con el intérprete del entorno virtual (`.venv/bin/python main.py` o con el venv activado). Los módulos de scrapers se importan con rutas absolutas de paquete (`from scrapers.BaseScraper import ...`), por lo que siempre hay que ejecutarlos desde la raíz del proyecto y **nunca** como ruta directa (`python scrapers/BaseScraper.py` falla con `ModuleNotFoundError`).
 
 **Usar el conversor de divisas en un script propio:**
 
 ```python
 from services.currency import currency_converter
 
-resultado = currency_converter(100, "USD", "COP")
+resultado = currency_converter(100, "USD", "COP")  # devuelve el monto convertido (o el original si falla la conversión)
 ```
 
-> No existe todavía un ejemplo de uso end-to-end (scraper → conversión → base de datos), porque `main.py` no está implementado.
+> No existe todavía un ejemplo de uso end-to-end completo (scraper → conversión → base de datos): `main.py` ejecuta el scraping y la caché diaria, pero aún no llama a `currency_converter` ni persiste en SQLite.
 
 ## Scripts disponibles
 
@@ -241,39 +255,45 @@ El proyecto no define scripts en `pyproject.toml` ni entradas en `requirements.t
 
 | Comando | Qué hace |
 |---|---|
-| `python database/schema.py` | Crea las tablas de la base de datos SQLite |
-| `python -m scrapers.EbayScraper` | Ejecuta una extracción de prueba contra una URL de eBay fija en el código |
+| `python -m database.schema` | Crea las tablas de la base de datos SQLite |
+| `python main.py` | Ejecuta la consulta de extremo a extremo de un producto de Amazon definido en `main.py` |
 
-`main.py` está vacío — no hay todavía un script único que orqueste el flujo completo.
+> `main.py` es el único punto de entrada que orquesta el flujo (scraping + caché diaria). La persistencia de resultados, la conversión de divisas y las notificaciones **aún no están conectadas** a él.
 
 ## Pruebas, calidad de código y cobertura
 
-No hay pruebas automatizadas en el repositorio: no existe carpeta `tests/`, ni `pytest`, `unittest` u otro framework en `requirements.txt`. Tampoco hay configuración de linters (`ruff`, `flake8`, `black`) ni de cobertura (`coverage.py`). La validación actual del comportamiento se hace de forma manual, ejecutando los bloques `__main__` de cada módulo contra datos reales.
+**No hay pruebas automatizadas versionadas:** no existe carpeta `tests/`. Sí están declarados `pytest` en `requirements.txt` (se usa con `.venv/bin/python -m pytest`, ya que `pytest` no está en el PATH global del sistema). El flujo de trabajo del proyecto (ver `AGENTS.md` §6.4) crea **baterías temporales aisladas** (sin red, sin `tracker.db`), las ejecuta y las elimina si todo pasa, conservándolas solo cuando hay fallos. Tampoco hay configuración de linters (`ruff`, `flake8`, `black`) ni de cobertura (`coverage.py`).
 
 ## Despliegue y entornos
 
-No hay configuración de despliegue en el repositorio: no existe `Dockerfile`, workflow de GitHub Actions, ni definición de tareas programadas (cron, Task Scheduler) versionada. El objetivo declarado del proyecto es correr como "sistema programado", pero esa capa de automatización aún no está construida ni documentada en el código. Actualmente el proyecto solo se ha ejecutado de forma manual, en un entorno de desarrollo local en Windows con entorno virtual `.venv`.
+No hay configuración de despliegue en el repositorio: no existe `Dockerfile`, workflow de GitHub Actions, ni definición de tareas programadas (cron, Task Scheduler) versionada. El objetivo declarado del proyecto es correr como "sistema programado", pero esa capa de automatización aún no está construida ni documentada en el código. Actualmente el proyecto se ejecuta de forma manual, en un entorno de desarrollo local **Linux** con entorno virtual `.venv` (Python 3.14.8 gestionado con pyenv; el proyecto se migró desde Windows en octubre de 2026).
 
 ## Seguridad, privacidad y manejo de datos
 
 - `.env` está correctamente excluido de git vía `.gitignore`, junto con `.venv/` y archivos `.docx`.
 - **`database/tracker.db` está versionado en git** (confirmado con `git ls-files`). Esto significa que los datos reales scrapeados (productos, precios, URLs) quedan almacenados de forma permanente en el historial del repositorio, incluso si en el futuro se elimina el archivo del working tree. Se recomienda añadir `*.db` al `.gitignore` y versionar únicamente el esquema (`schema.py`), no los datos generados.
-- El proyecto obtiene datos de sitios de terceros (eBay, y en diseño, Amazon) mediante automatización de navegador. Esto tiene implicaciones de Términos de Servicio que exceden el alcance técnico de este README; la decisión de cómo y con qué frecuencia scrapear debe tomarse conscientemente por el mantenedor del proyecto.
+- El proyecto obtiene datos de sitios de terceros (actualmente Amazon) mediante automatización de navegador. Esto tiene implicaciones de Términos de Servicio que exceden el alcance técnico de este README; la decisión de cómo y con qué frecuencia scrapear debe tomarse conscientemente por el mantenedor del proyecto.
 - No se han identificado datos personales de terceros almacenados (los datos son de productos y vendedores públicos en los marketplaces).
 
 ## Solución de problemas frecuentes
 
-**`ImportError: attempted relative import` o `ModuleNotFoundError` al ejecutar `EbayScraper.py`**
-Ejecuta el módulo con `python -m scrapers.EbayScraper` desde la raíz del proyecto, no `python scrapers/EbayScraper.py` directamente.
+**`ModuleNotFoundError: No module named 'config'` o `'scrapers'` al ejecutar un módulo**
+Ejecuta siempre desde la **raíz** del proyecto y con `-m` cuando el módulo lo soporte (`python -m database.schema`), nunca la ruta directa (`python scrapers/AmazonScraper.py`): al ejecutar un archivo su directorio reemplaza a la raíz en `sys.path` y los paquetes del proyecto no se encuentran. El scraper se usa vía `python main.py` (no tiene bloque `__main__` propio).
 
-**eBay devuelve una página de bloqueo genérica en vez del contenido real**
-Ocurre específicamente cuando Playwright se lanza con `headless=True`. La mitigación actual en el código es mantener `headless=False` (modo headful) en `scrapers/BaseScraper.py`. Esto es una solución temporal: impide ejecutar el scraper en un servidor sin interfaz gráfica.
+**Amazon devuelve un CAPTCHA (`Robot Check`) o un error HTTP distinto de 200**
+`BaseScraper.verificacion_de_estado_html()` lanza `Exception` con "HTML contiene indicadores de bloqueo" o "Error HTTP ..." antes de extraer datos, para no guardar datos nulos. Si ocurre de forma sostenida, revisa si se está raspando con demasiada frecuencia (la caché diaria de `ya_se_consulto_hoy` existe justo para limitar consultas repetidas).
+
+**El scraper no encuentra precio principal (solo "15 opciones desde ...")**
+El precio del buybox depende de la ubicación de entrega fijada en Miami (ZIP 33122). El widget de ubicación es *best-effort*: si falla se imprime "Aviso: no se pudo fijar la ubicación Miami" y se continúa sin precio principal.
 
 **`json.decoder.JSONDecodeError` al convertir divisas**
 `services/currency.py` ya captura esta excepción cuando `database/exchange_rates.json` está corrupto o vacío, y devuelve el monto original sin convertir. Si ocurre, revisa o borra manualmente ese archivo para que se regenere.
 
-**`playwright_stealth` lanza `ImportError: cannot import name 'stealth_async'`**
-Aplica solo si se integra `playwright-stealth` (todavía no está en el repositorio). Las versiones 2.x de esa librería reemplazaron la función `stealth_async` por la clase `Stealth` con el método `apply_stealth_async(page)`.
+**`sqlite3.OperationalError: table Productos already exists` al inicializar la BD**
+`init_sqlite_db()` todavía no usa `IF NOT EXISTS` (ver "Pendientes de documentar"); solo funciona la primera vez o con una `tracker.db` vacía.
+
+**`ImportError: cannot import name 'stealth_async'` de `playwright_stealth`**
+El proyecto usa `playwright-stealth` 2.x: la API correcta es la clase `Stealth` con `apply_stealth_async(page)` (la función `stealth_async` era de la 1.x). Verificado en `requirements.txt` (`playwright-stealth>=1.0.6`) y en `scrapers/BaseScraper.py`.
 
 ## Guía de contribución
 
@@ -287,10 +307,10 @@ El proyecto es mantenido actualmente por un único desarrollador y no cuenta con
 
 Observadas de forma consistente en el código actual:
 
-- **Comentarios y docstrings en español** en todo el proyecto.
-- **Estructura de docstring** con secciones `Parámetros:`, `Retorna:` y `Funcionamiento:` (ver `scrapers/EbayScraper.py`, `scrapers/BaseScraper.py`).
+- **Comentarios y docstrings en español** en todo el proyecto (obligatorio según `docs/constitution.md`: identificadores, métodos y comentarios en español).
 - **Manejo de errores** con `try/except` y mensajes de advertencia impresos por consola (`print(...)`) en lugar de un sistema de logging (`logging`).
-- **Nombres de archivo de scrapers en PascalCase** (`BaseScraper.py`, `EbayScraper.py`), distinto de la convención `snake_case` habitual para módulos en Python — mantenlo así por consistencia con el código existente al agregar un scraper nuevo, o decide formalmente migrar todos los nombres a la vez.
+- **Nombres de archivo de scrapers en PascalCase** (`BaseScraper.py`, `AmazonScraper.py`), distinto de la convención `snake_case` habitual para módulos en Python — mantenlo así por consistencia con el código existente al agregar un scraper nuevo, o decide formalmente migrar todos los nombres a una vez.
+- **Flujo de trabajo con agentes IA** (`AGENTS.md`): leer `MEMORY.md` → proponer QUÉ/CÓMO → esperar aprobación → ejecutar → actualizar `MEMORY.md`. Las pruebas son siempre temporales y aisladas (§6.4).
 
 ## Roadmap
 
@@ -298,18 +318,19 @@ Observadas de forma consistente en el código actual:
 
 - [x] Esquema SQLite (`Productos`, `Historial_Precios`, `Metricas_Vendedor`)
 - [x] Conversión de divisas COP↔USD con caché diario en JSON
-- [x] Contrato `BaseScraper` + extracción de HTML renderizado con Playwright
-- [x] Scraper concreto para eBay
+- [x] Contrato `BaseScraper` + extracción de HTML renderizado con Playwright **asíncrono** + `playwright-stealth`
+- [x] Scraper concreto para **Amazon** (`AmazonScraper`), con detección de CAPTCHA y ubicación de entrega Miami
 - [x] Verificación de si un producto ya se consultó en el día actual (`ya_se_consulto_hoy`)
+- [x] Punto de entrada `main.py` de extremo a extremo (consulta de un producto de Amazon)
+- [x] Migración de `EbayScraper` a `AmazonScraper` y de Playwright síncrono a asíncrono (el pivote ya está comprometido al repositorio)
 
 **Planificado (mencionado en documentación de contexto y/o discusiones de diseño, sin código en el repositorio todavía):**
 
-- [ ] Scraper para Amazon, con Playwright en modo asíncrono y `playwright-stealth` para mitigar detección de automatización
-- [ ] Orquestador (`main.py`) que conecte scraping → conversión → persistencia → análisis → notificación
+- [ ] Persistencia: `INSERT`/`UPDATE` de los datos scrapeados en SQLite (los datos aún no se guardan; el orquestador solo lee)
+- [ ] Conexión del resto del flujo en `main.py`: conversión → persistencia → análisis → notificación
 - [ ] Analizador de ofertas que use `PRICE_DROP_THRESHOLD` contra el historial de precios
 - [ ] Módulo de notificaciones por Telegram (`python-telegram-bot`)
 - [ ] Estrategia de control de volumen para scraping sostenido: delays aleatorios, rotación de User-Agent, evaluación de proxies residenciales
-- [ ] Migrar (o justificar explícitamente no migrar) `EbayScraper` de Playwright síncrono a asíncrono, para mantener consistencia con el diseño planteado para Amazon
 
 ## Fases de desarrollo
 
@@ -356,38 +377,38 @@ Observadas de forma consistente en el código actual:
 ### Fase 6 — Arquitectura de scraping y primer scraper funcional (eBay)
 - **Objetivo:** definir un contrato común para cualquier scraper y entregar una primera implementación funcional contra una tienda real.
 - **Entregado:** clase abstracta `BaseScraper` con `extraer_html()` (Playwright síncrono, headful) y el método abstracto `extraer_datos()`; clase concreta `EbayScraper` que extrae título, precio, moneda, vendedor, ventas y rating; limpieza de código no utilizado en `currency.py`; actualización de `.gitignore` para excluir `.docx`.
-- **Archivos/módulos:** `scrapers/BaseScraper.py`, `scrapers/EbayScraper.py`, `.gitignore`.
-- **Resultado:** primer scraper end-to-end funcional de forma manual (bloque `__main__` con una URL real de prueba).
-- **Riesgos/limitaciones:** el scraper requiere modo headful (`headless=False`) porque eBay bloquea el contenido real cuando detecta `headless=True`; los selectores CSS de eBay están sujetos a romperse ante cambios de la plataforma; no hay reintentos ni backoff ante bloqueos.
-- **Commits:** `b329a24`, `91a5973`, `5308a3a`, `add4041`, `8541243` (8 sep 2026).
+- **Archivos/módulos:** `scrapers/BaseScraper.py`, `scrapers/EbayScraper.py` (renombrado después a `AmazonScraper.py` en el commit `7e9250f`), `.gitignore`.
+- **Resultado:** primer scraper end-to-end funcional de forma manual.
+- **Riesgos/limitaciones:** en su momento requirió modo headful porque eBay bloqueaba `headless=True` (hoy el código corre headless con stealth contra Amazon); los selectores CSS están sujetos a romperse ante cambios de la plataforma; no hay reintentos ni backoff ante bloqueos.
+- **Commits:** `b329a24`, `91a5973`, `5308a3a`, `add4041`, `8541243` (8 sep 2026), `7e9250f` (renombrado a Amazon).
 
 ### Fase 7 — Control de frecuencia de consultas
 - **Objetivo:** evitar volver a scrapear el mismo producto más de una vez al día, como primera medida de control de volumen de peticiones.
 - **Entregado:** función `ya_se_consulto_hoy(conn, product_id)` en `database/schema.py`, que consulta la fecha del último registro en `Historial_Precios`.
 - **Archivos/módulos:** `database/schema.py`.
-- **Resultado:** función implementada, aunque **todavía no está siendo llamada desde ningún scraper ni desde un orquestador** (`main.py` sigue vacío).
-- **Riesgos/limitaciones:** la consulta SQL filtra por `Historial_Precios.id = ?`, no por `producto_id`, lo cual parece no corresponder con la intención de la función (buscar el último registro de un producto específico); requiere confirmación y posible corrección por parte del autor (ver [Pendientes de documentar](#pendientes-de-documentar)).
+- **Resultado:** función implementada **y llamada desde `BaseScraper.obtener_datos()`** (el orquestador devuelve el registro guardado si ya se consultó hoy).
+- **Riesgos/limitaciones:** tuvo dos defectos históricos, ambos corregidos: filtraba por `Historial_Precios.id` en vez de `producto_id`, y comparaba el `TIMESTAMP` completo con `date.today().isoformat()` (nunca coincidía). Sigue sin efecto práctico hasta que exista el `INSERT` de persistencia (sin filas, no hay nada que cachear).
 - **Commits:** `cc825aa` (17 sep 2026).
 
-### Fase 8 — Exploración de pivote a Amazon (en diseño, no comprometida al repositorio)
-- **Objetivo:** evaluar reemplazar o complementar el scraper de eBay con uno para Amazon, dado el interés en un catálogo más amplio, e incorporar medidas de sigilo (`playwright-stealth`) y una reescritura a Playwright asíncrono.
-- **Entregado:** *ningún archivo de esta fase está presente en el repositorio a la fecha de este README.* El trabajo se ha realizado como discusión de diseño y prototipos sueltos (scripts de prueba de conectividad contra Amazon, boceto de un `ScraperBase` asíncrono con verificación de fecha antes de abrir el navegador).
-- **Archivos/módulos:** ninguno confirmado en el repositorio; se discutieron rutas propuestas como `scrapers/base.py` y `scrapers/amazon.py`, que **no coinciden con los nombres reales ya existentes** (`scrapers/BaseScraper.py`, `scrapers/EbayScraper.py`).
-- **Resultado:** pruebas exploratorias fuera del repositorio indican que Playwright con `playwright-stealth` no fue bloqueado por Amazon en una consulta aislada de un solo producto; no se ha validado comportamiento bajo volumen sostenido.
-- **Riesgos/limitaciones:** decisión de arquitectura no cerrada (¿se reemplaza eBay o se mantiene en paralelo?); inconsistencia pendiente entre Playwright síncrono (eBay, ya en el repo) y asíncrono (Amazon, en diseño); `playwright-stealth` no está en `requirements.txt`.
-- **Commits:** ninguno — fase sin representación en el historial de git a la fecha.
+### Fase 8 — Pivote a Amazon (comprometido al repositorio)
+- **Objetivo:** reemplazar el scraper de eBay por uno para Amazon, con Playwright asíncrono, `playwright-stealth` y detección de bloqueos.
+- **Entregado:** `AmazonScraper` (extracción del DOM con claves del contrato en español), `BaseScraper` asíncrono con `obtener_dom()`, `verificacion_de_estado_html()` (anti-CAPTCHA), ubicación de entrega Miami, `playwright-stealth` en `requirements.txt` y `main.py` como punto de entrada funcional.
+- **Archivos/módulos:** `scrapers/AmazonScraper.py`, `scrapers/BaseScraper.py`, `main.py`, `requirements.txt`.
+- **Resultado:** consulta de extremo a extremo verificada contra Amazon real (precio `42.7 USD`, rating `4.7`, `origen: scraping`).
+- **Riesgos/limitaciones:** sin persistencia aún (los datos no se guardan en SQLite); sin validación bajo volumen sostenido; el widget de ubicación Miami es *best-effort*.
+- **Commits:** `7e9250f`, `5678b05`, `77f2697`, `66a5c6e` (oct 2026).
 
 ## Decisiones técnicas y evolución del proyecto
 
 | Decisión | Contexto | Alternativas consideradas | Motivo de elección | Consecuencias / trade-offs | Estado |
 |---|---|---|---|---|---|
 | Usar SQLite como base de datos | Proyecto personal, sin necesidad de servidor de base de datos dedicado | PostgreSQL, MySQL | Cero configuración, base de datos como archivo único, suficiente para el volumen esperado | No soporta bien concurrencia ni acceso remoto; adecuado solo mientras el proyecto no escale | Implementado |
-| Enfocar el scraping en una sola tienda a la vez (eBay) en lugar de múltiples en paralelo | Intentos previos con Mercado Libre fallaron: `requests`+BeautifulSoup no capturaba contenido dinámico, la API pública devolvía 403, y Playwright tenía bloqueos y esperas largas | Mantener varios scrapers (Mercado Libre + eBay) en desarrollo simultáneo | Reducir complejidad y validar el flujo completo con una sola fuente antes de extender a otras tiendas | `EbayScraper` es hoy la única implementación concreta; el trabajo sobre Mercado Libre se descartó | Implementado (parcialmente en revisión por el pivote a Amazon en diseño) |
-| Usar Playwright en vez de `requests` para obtener el HTML | El precio y título de productos se cargan vía JavaScript en Mercado Libre y eBay, y `requests` no ejecuta JS | `requests` + BeautifulSoup (insuficiente, ya probado), Selenium | Playwright soporta esperar contenido dinámico y tiene mejor camino hacia técnicas de sigilo | Dependencia más pesada (requiere instalar binarios de navegador); necesidad de manejar timeouts | Implementado |
-| Ejecutar el navegador en modo headful (`headless=False`) en `BaseScraper` | Con `headless=True`, eBay devuelve una página de bloqueo genérica en vez del contenido real | Forzar `headless=True` con medidas de sigilo adicionales | Mientras no exista una solución de sigilo robusta integrada, el modo headful evita el bloqueo observado | No es viable para ejecución en segundo plano real (requiere entorno gráfico o `Xvfb`); mayor consumo de recursos | Solución temporal, pendiente de revisión |
-| Verificar diariamente si un producto ya fue consultado, antes de scrapear de nuevo | Necesidad de controlar el volumen de peticiones para reducir el riesgo de bloqueo | Un archivo de log aparte; un scheduler con estado en memoria | Reutilizar la tabla `Historial_Precios` ya existente, sin infraestructura nueva | La consulta actual (`WHERE id = ?`) parece no filtrar correctamente por producto — pendiente de corrección | Implementado con un defecto pendiente de confirmar |
+| Enfocar el scraping en una sola tienda a la vez en lugar de múltiples en paralelo | Intentos previos con Mercado Libre fallaron: `requests`+BeautifulSoup no capturaba contenido dinámico, la API pública devolvía 403, y Playwright tenía bloqueos y esperas largas | Mantener varios scrapers en desarrollo simultáneo | Reducir complejidad y validar el flujo completo con una sola fuente antes de extender a otras tiendas | Tras una primera fase con eBay, hoy `AmazonScraper` es la única implementación concreta; el trabajo sobre Mercado Libre se descartó | Implementado (eBay reemplazado por Amazon) |
+| Usar Playwright en vez de `requests` para obtener el HTML | El precio y título de productos se cargan vía JavaScript en Mercado Libre, eBay y Amazon, y `requests` no ejecuta JS | `requests` + BeautifulSoup (insuficiente, ya probado), Selenium | Playwright soporta esperar contenido dinámico y tiene mejor camino hacia técnicas de sigilo | Dependencia más pesada (requiere instalar binarios de navegador); necesidad de manejar timeouts | Implementado |
+| Ejecutar el navegador en modo headless con `playwright-stealth` | Con `headless=True` puro, eBay devolvía bloqueos; el riesgo de detección se mantiene en Amazon | Mantener el antiguo modo headful (`headless=False`) | El stealth 2.x + cookies + ubicación Miami evitaron el bloqueo en las pruebas contra Amazon, y habilita ejecución sin gráficos | Sigue sin validarse bajo volumen sostenido; un CAPTCHA persistente aborta la ejecución (por diseño) | Implementado |
+| Verificar diariamente si un producto ya fue consultado, antes de scrapear de nuevo | Necesidad de controlar el volumen de peticiones para reducir el riesgo de bloqueo | Un archivo de log aparte; un scheduler con estado en memoria | Reutilizar la tabla `Historial_Precios` ya existente, sin infraestructura nueva | Corregido en oct 2026 (filtro por `producto_id` y comparación solo de la parte de fecha); sin efecto práctico hasta que exista el `INSERT` de persistencia | Implementado |
 | Cachear las tasas de cambio en un archivo JSON local en lugar de consultar la API en cada ejecución | Evitar llamadas innecesarias a una API externa de tasas de cambio | Consultar siempre la API; guardar las tasas en una tabla SQLite | La tasa solo necesita actualizarse una vez al día; un JSON es más simple que una tabla para este caso de uso | Posible desfase de hasta un día si la tasa cambia intradía | Implementado |
-| Adoptar Playwright asíncrono + `playwright-stealth` para el futuro scraper de Amazon | Se busca evitar el patrón de bloqueo visto con eBay y dejar la puerta abierta a concurrencia futura | Mantener Playwright síncrono (como en `EbayScraper`); usar la Product Advertising API oficial de Amazon | La API asíncrona es la recomendada por Playwright para uso con stealth y permite concurrencia sin reescribir la base | Introduce una inconsistencia de estilo (síncrono en eBay, asíncrono en Amazon) pendiente de unificar o justificar | En diseño, sin código en el repositorio |
+| Adoptar Playwright asíncrono + `playwright-stealth` para el scraper de Amazon | Se busca evitar el patrón de bloqueo visto con eBay y dejar la puerta abierta a concurrencia futura | Mantener Playwright síncrono (como el original de eBay); usar la Product Advertising API oficial de Amazon | La API asíncrona es la recomendada por Playwright para uso con stealth y permite concurrencia sin reescribir la base | La firma abstracta `extraer_datos` también se declaró `async` para que todo scraper futuro cumpla el contrato | Implementado |
 | No duplicar el HTML scrapeado en archivos ni en otra base de datos | Se evaluó cachear el HTML por producto para depurar selectores sin re-scrapear | Guardar un `.html` por producto; crear una tabla o base de datos separada para el HTML crudo | Proyecto personal sin necesidad de escalar; el histórico relevante (precio) ya vive en SQLite | No queda registro de la página exacta que originó cada dato, lo que dificulta depurar selectores rotos retroactivamente | Decidido, sin código todavía en el repositorio |
 
 ## Licencia y créditos
@@ -396,19 +417,19 @@ Observadas de forma consistente en el código actual:
 
 ## Pendientes de documentar
 
-- **Nombres de archivo `___init__.py`** en `config/`, `database/` y `scrapers/` tienen tres guiones bajos en vez de dos (`___init__.py` en lugar de `__init__.py`), a diferencia de `services/__init__.py`, que sí está correcto. `TODO:` confirmar si es un error tipográfico o intencional.
-- **Posible error funcional en `ya_se_consulto_hoy`** (`database/schema.py`): filtra por `Historial_Precios.id = ?` en vez de `producto_id = ?`, lo que no parece corresponder con el objetivo de "saber si un producto específico ya fue consultado hoy". `TODO:` confirmar con el autor y corregir si aplica.
 - **`database/tracker.db` está versionado en git** con datos reales. `TODO:` decidir si se elimina del historial y se agrega `*.db` al `.gitignore`.
-- **Versión de Python objetivo no especificada** (no hay `pyproject.toml` ni `.python-version`). `TODO:` confirmar la versión mínima soportada.
 - **Proveedor real de la API de tasas de cambio no confirmado** — solo se infiere del formato de respuesta esperado (`conversion_rates`) en `services/currency.py`. `TODO:` documentar el proveedor exacto.
 - **No existe `.env.example`** para facilitar el onboarding de nuevos colaboradores. `TODO:` crearlo con las claves listadas en la tabla de configuración, sin valores reales.
-- **Estado real del pivote a Amazon**: existen discusiones de diseño avanzadas (Playwright asíncrono, `playwright-stealth`, verificación de fecha antes de abrir el navegador, un `ScraperBase` rediseñado), pero **nada de esto está comprometido al repositorio** a la fecha de este README. `TODO:` el autor debe decidir si continúa por esta vía y comprometer el código correspondiente.
-- **Módulos mencionados en la documentación de contexto del proyecto pero inexistentes en el repositorio:** `notifications/telegram.py`, un analizador de ofertas, y cualquier orquestador real en `main.py`. `TODO:` confirmar si siguen planeados o si el alcance cambió.
+- **`init_sqlite_db()` no es idempotente:** `CREATE TABLE` sin `IF NOT EXISTS` falla con `OperationalError` si las tablas ya existen, contraviniendo la regla de idempotencia de `docs/constitution.md` §3. `TODO:` añadir `IF NOT EXISTS`.
+- **Módulos planeados aún inexistentes:** `notifications/telegram.py` y un analizador de ofertas. `TODO:` confirmar si siguen planeados (el alcance actual prioriza la persistencia en SQLite).
+- **Versión de Python sin versionar en el repo:** el entorno usa 3.14.8 (pyenv), pero no hay `pyproject.toml` ni `.python-version`. `TODO:` versionarla.
+
+> **Resueltos en octubre 2026:** `___init__.py` (ya renombrados a `__init__.py`); bug de `ya_se_consulto_hoy` (`producto_id` y comparación de fecha, ya corregidos); estado del pivote a Amazon (comprometido al repositorio, ver Fase 8); `main.py` implementado.
 
 ## Resumen de cambios propuestos
 
 - Se generó este README desde cero, reemplazando el contenido anterior (una guía genérica sobre entornos virtuales de Python) por documentación específica del proyecto, basada en inspección directa del código fuente y del historial de git del repositorio real.
-- Se reconstruyeron 7 fases de desarrollo con evidencia de commits, más una octava fase (pivote a Amazon) documentada como "en diseño, sin código en el repositorio", para no dar la impresión de que ya está implementada.
-- Se documentaron 8 decisiones técnicas con contexto, alternativas y trade-offs, incluyendo dos inconsistencias detectadas entre lo discutido en sesiones de diseño y lo realmente presente en el código (nombres de archivo de scraper, y síncrono vs. asíncrono en Playwright).
-- Se dejaron señaladas explícitamente, con `TODO:`, todas las afirmaciones que requieren confirmación humana: versión de Python, proveedor de la API de tasas de cambio, posible bug en `ya_se_consulto_hoy`, ausencia de licencia, y el estado real (no comprometido) del scraper de Amazon.
+- Se reconstruyeron 8 fases de desarrollo con evidencia de commits; la Fase 8 (pivote a Amazon) quedó reescrita como **comprometida al repositorio** (antes documentada como "en diseño, sin código").
+- Se documentaron las decisiones técnicas con contexto, alternativas y trade-offs, actualizando las filas obsoletas sobre eBay/headful/síncrono al estado real (Amazon/headless+stealth/asíncrono).
+- **Actualización de octubre 2026 (auditoría código vs documentación):** se corrigieron todas las afirmaciones falsas detectadas (EbayScraper, `main.py` vacío, stealth/pytest "ausentes", Playwright síncrono, umbral 0.3, entorno Windows, comando `python database/schema.py`), se resolvieron los `TODO:` ya saldados y se añadieron los pendientes reales (idempotencia de `init_sqlite_db`, `.env.example`, proveedor de la API).
 - No se incluyeron secretos, tokens ni valores reales de variables de entorno en ningún ejemplo.

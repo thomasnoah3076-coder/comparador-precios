@@ -159,5 +159,7 @@ class BaseScraper(ABC):
 
 
     @abstractmethod
-    def extraer_datos(self, url: str) -> dict:
+    async def extraer_datos(self, url: str) -> dict:
+        # Debe ser async para coincidir con la implementación concreta:
+        # obtener_datos() hace await sobre este método (rompería con un scraper síncrono).
         raise NotImplementedError

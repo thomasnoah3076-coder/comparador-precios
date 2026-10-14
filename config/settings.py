@@ -29,8 +29,8 @@ CHATS_ID = {
 # Codigo ISO de la moneda local para mostrar los precios en la moneda deseada.
 DEFAULT_CURRENCY = os.getenv("LOCAL_CURRENCY")
 
-# 30% de caída de precio.
-PRICE_DROP_THRESHOLD = 0.3
+# 15% de caída de precio.
+PRICE_DROP_THRESHOLD = 0.15
 
 # Clave de API para obtener la tasa de cambio de divisas.
 EXCHANGE_RATE_API_KEY = os.getenv("EXCHANGE_RATE_API_KEY")

@@ -48,7 +48,9 @@ def ya_se_consulto_hoy(conn, product_id: int) -> bool:
     if row is None or row[0] is None:
         return False
     ultima_fecha = row[0]
-    return ultima_fecha == date.today().isoformat()
+    # El formato guardado es un TIMESTAMP completo ("2026-10-14 12:15:20"),
+    # por lo que solo se compara la parte de fecha ("2026-10-14") con hoy.
+    return ultima_fecha.startswith(date.today().isoformat())
 
 
 def obtener_ultimo_registro(conn, product_id: int) -> dict:
@@ -71,24 +73,24 @@ def obtener_ultimo_registro(conn, product_id: int) -> dict:
     # Si no se encuentra el producto en la tabla principal
     if row is None:
         return {
-            "nombre": None,
+            "titulo": None,
             "precio": None,
             "moneda": None,
             "url": None,
             "vendedor": None,
             "ventas": None,
-            "rating": None
+            "calificacion_promedio": None
         }
 
-    # Si se encuentra, mapeamos los resultados al diccionario solicitado
+    # Si se encuentra, mapeamos los resultados al contrato de datos (MEMORY.md §4)
     return {
-        "nombre": row[0],
+        "titulo": row[0],
         "precio": row[1],
         "moneda": row[2],
         "url": row[3],
         "vendedor": row[4],
         "ventas": row[5],
-        "rating": row[6]
+        "calificacion_promedio": row[6]
     }
 
 if __name__ == "__main__":
