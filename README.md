@@ -195,6 +195,7 @@ playwright install chromium
 
 # 6. Inicializar la base de datos SQLite (desde la raíz del proyecto)
 python -m database.schema
+# (también funciona la ejecución directa: python database/schema.py)
 ```
 
 > No existe un archivo `.env.example` en el repositorio. `TODO:` crear uno para facilitar el onboarding, con las claves de la tabla de configuración sin valores reales.
@@ -229,7 +230,7 @@ python -m database.schema
 
 Ejecuta `init_sqlite_db()`, que crea las tablas `Productos`, `Historial_Precios` y `Metricas_Vendedor` en `database/tracker.db`.
 
-> ⚠️ Se ejecuta con `-m` desde la raíz del proyecto (`python database/schema.py` falla con `ModuleNotFoundError: No module named 'config'`, porque la raíz no está en `sys.path`). Además, hoy **no es idempotente**: si las tablas ya existen lanza `sqlite3.OperationalError: table Productos already exists` (pendiente de corregir con `CREATE TABLE IF NOT EXISTS`, ver "Pendientes de documentar").
+> Ambas formas funcionan: `python -m database.schema` o la ejecución directa `python database/schema.py` (incluye un arranque de ruta condicionado que solo se activa al ejecutar el archivo como script). La inicialización **es idempotente** (`CREATE TABLE IF NOT EXISTS`): se puede ejecutar cuantas veces se quiera sin error y sin destruir tablas ni datos existentes (regla `docs/constitution.md` §3).
 
 **Ejecutar el punto de entrada (consulta de extremo a extremo contra Amazon):**
 
@@ -255,7 +256,7 @@ El proyecto no define scripts en `pyproject.toml` ni entradas en `requirements.t
 
 | Comando | Qué hace |
 |---|---|
-| `python -m database.schema` | Crea las tablas de la base de datos SQLite |
+| `python -m database.schema` (o `python database/schema.py`) | Crea las tablas de la base de datos SQLite (idempotente) |
 | `python main.py` | Ejecuta la consulta de extremo a extremo de un producto de Amazon definido en `main.py` |
 
 > `main.py` es el único punto de entrada que orquesta el flujo (scraping + caché diaria). La persistencia de resultados, la conversión de divisas y las notificaciones **aún no están conectadas** a él.
@@ -278,7 +279,7 @@ No hay configuración de despliegue en el repositorio: no existe `Dockerfile`, w
 ## Solución de problemas frecuentes
 
 **`ModuleNotFoundError: No module named 'config'` o `'scrapers'` al ejecutar un módulo**
-Ejecuta siempre desde la **raíz** del proyecto y con `-m` cuando el módulo lo soporte (`python -m database.schema`), nunca la ruta directa (`python scrapers/AmazonScraper.py`): al ejecutar un archivo su directorio reemplaza a la raíz en `sys.path` y los paquetes del proyecto no se encuentran. El scraper se usa vía `python main.py` (no tiene bloque `__main__` propio).
+Al ejecutar un archivo su directorio reemplaza a la raíz en `sys.path` y los paquetes del proyecto no se encuentran. Ejecuta desde la **raíz** y con `-m` (`python -m scrapers.algo`), o usa los puntos de entrada que ya lo resuelven: `database/schema.py` incluye un arranque de ruta condicionado (funciona directo y con `-m`), y el scraper se usa vía `python main.py` (no tiene bloque `__main__` propio).
 
 **Amazon devuelve un CAPTCHA (`Robot Check`) o un error HTTP distinto de 200**
 `BaseScraper.verificacion_de_estado_html()` lanza `Exception` con "HTML contiene indicadores de bloqueo" o "Error HTTP ..." antes de extraer datos, para no guardar datos nulos. Si ocurre de forma sostenida, revisa si se está raspando con demasiada frecuencia (la caché diaria de `ya_se_consulto_hoy` existe justo para limitar consultas repetidas).
@@ -288,9 +289,6 @@ El precio del buybox depende de la ubicación de entrega fijada en Miami (ZIP 33
 
 **`json.decoder.JSONDecodeError` al convertir divisas**
 `services/currency.py` ya captura esta excepción cuando `database/exchange_rates.json` está corrupto o vacío, y devuelve el monto original sin convertir. Si ocurre, revisa o borra manualmente ese archivo para que se regenere.
-
-**`sqlite3.OperationalError: table Productos already exists` al inicializar la BD**
-`init_sqlite_db()` todavía no usa `IF NOT EXISTS` (ver "Pendientes de documentar"); solo funciona la primera vez o con una `tracker.db` vacía.
 
 **`ImportError: cannot import name 'stealth_async'` de `playwright_stealth`**
 El proyecto usa `playwright-stealth` 2.x: la API correcta es la clase `Stealth` con `apply_stealth_async(page)` (la función `stealth_async` era de la 1.x). Verificado en `requirements.txt` (`playwright-stealth>=1.0.6`) y en `scrapers/BaseScraper.py`.
@@ -420,16 +418,16 @@ Observadas de forma consistente en el código actual:
 - **`database/tracker.db` está versionado en git** con datos reales. `TODO:` decidir si se elimina del historial y se agrega `*.db` al `.gitignore`.
 - **Proveedor real de la API de tasas de cambio no confirmado** — solo se infiere del formato de respuesta esperado (`conversion_rates`) en `services/currency.py`. `TODO:` documentar el proveedor exacto.
 - **No existe `.env.example`** para facilitar el onboarding de nuevos colaboradores. `TODO:` crearlo con las claves listadas en la tabla de configuración, sin valores reales.
-- **`init_sqlite_db()` no es idempotente:** `CREATE TABLE` sin `IF NOT EXISTS` falla con `OperationalError` si las tablas ya existen, contraviniendo la regla de idempotencia de `docs/constitution.md` §3. `TODO:` añadir `IF NOT EXISTS`.
 - **Módulos planeados aún inexistentes:** `notifications/telegram.py` y un analizador de ofertas. `TODO:` confirmar si siguen planeados (el alcance actual prioriza la persistencia en SQLite).
 - **Versión de Python sin versionar en el repo:** el entorno usa 3.14.8 (pyenv), pero no hay `pyproject.toml` ni `.python-version`. `TODO:` versionarla.
 
-> **Resueltos en octubre 2026:** `___init__.py` (ya renombrados a `__init__.py`); bug de `ya_se_consulto_hoy` (`producto_id` y comparación de fecha, ya corregidos); estado del pivote a Amazon (comprometido al repositorio, ver Fase 8); `main.py` implementado.
+> **Resueltos en octubre 2026:** `___init__.py` (ya renombrados a `__init__.py`); bug de `ya_se_consulto_hoy` (`producto_id` y comparación de fecha, ya corregidos); estado del pivote a Amazon (comprometido al repositorio, ver Fase 8); `main.py` implementado; ejecución directa de `database/schema.py` (arranque de ruta condicionado, ambos comandos funcionan); `init_sqlite_db()` ahora es idempotente (`CREATE TABLE IF NOT EXISTS`).
 
 ## Resumen de cambios propuestos
 
 - Se generó este README desde cero, reemplazando el contenido anterior (una guía genérica sobre entornos virtuales de Python) por documentación específica del proyecto, basada en inspección directa del código fuente y del historial de git del repositorio real.
 - Se reconstruyeron 8 fases de desarrollo con evidencia de commits; la Fase 8 (pivote a Amazon) quedó reescrita como **comprometida al repositorio** (antes documentada como "en diseño, sin código").
 - Se documentaron las decisiones técnicas con contexto, alternativas y trade-offs, actualizando las filas obsoletas sobre eBay/headful/síncrono al estado real (Amazon/headless+stealth/asíncrono).
-- **Actualización de octubre 2026 (auditoría código vs documentación):** se corrigieron todas las afirmaciones falsas detectadas (EbayScraper, `main.py` vacío, stealth/pytest "ausentes", Playwright síncrono, umbral 0.3, entorno Windows, comando `python database/schema.py`), se resolvieron los `TODO:` ya saldados y se añadieron los pendientes reales (idempotencia de `init_sqlite_db`, `.env.example`, proveedor de la API).
+- **Actualización de octubre 2026 (auditoría código vs documentación):** se corrigieron todas las afirmaciones falsas detectadas (EbayScraper, `main.py` vacío, stealth/pytest "ausentes", Playwright síncrono, umbral 0.3, entorno Windows), se resolvieron los `TODO:` ya saldados y se añadieron los pendientes reales (`.env.example`, proveedor de la API).
+- **Segunda corrección de octubre 2026:** se arreglaron los dos errores detectados por esa auditoría — el comando `python database/schema.py` (arranque de ruta condicionado: ahora funcionan tanto ese comando como `python -m database.schema`) y la no-idempotencia de `init_sqlite_db()` (`CREATE TABLE IF NOT EXISTS`: seguro de repetir sin destruir datos, conforme a `docs/constitution.md` §3).
 - No se incluyeron secretos, tokens ni valores reales de variables de entorno en ningún ejemplo.

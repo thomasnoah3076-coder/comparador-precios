@@ -1,13 +1,25 @@
 import sqlite3 # 1ro se importa la librería sqlite3 para poder trabajar con bases de datos SQLite.
-from config.settings import DB_PATH_TRACKER
 from datetime import date
+from pathlib import Path
+import sys
+
+# Arranque de ruta para permitir la EJECUCIÓN DIRECTA del archivo (python database/schema.py).
+# Al ejecutar un archivo, Python pone SU directorio (database/) en sys.path, no la raíz del
+# proyecto, y "from config.settings import ..." fallaría con ModuleNotFoundError.
+# El guard (__package__ vacío) garantiza que esto solo ocurra al ejecutar el archivo directamente:
+# al importarlo como paquete (import database.schema) o correrlo con -m (python -m database.schema),
+# __package__ vale "database" y la raíz ya está en sys.path (sin efectos secundarios).
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from config.settings import DB_PATH_TRACKER
 
 def init_sqlite_db():
     conexion = sqlite3.connect(DB_PATH_TRACKER) # 2do se conecta al módulo que previamente creamos (en este caso le pasamos la ruta donde se encuentra la base de datos).
     cursor = conexion.cursor() # 3ro se crea un cursor. Que es un objeto que utilizaremos, para ejecutar las sentencias SQL y obtener resultados de la base de datos. 
 
     cursor.executescript('''
-        CREATE TABLE Productos (
+        CREATE TABLE IF NOT EXISTS Productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
             url TEXT NOT NULL,
@@ -16,7 +28,7 @@ def init_sqlite_db():
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE TABLE Historial_Precios(
+        CREATE TABLE IF NOT EXISTS Historial_Precios(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             producto_id INTEGER NOT NULL,
             precio_local REAL NOT NULL,
@@ -26,7 +38,7 @@ def init_sqlite_db():
             FOREIGN KEY (producto_id) REFERENCES Productos(id)
         );
 
-        CREATE TABLE Metricas_Vendedor (
+        CREATE TABLE IF NOT EXISTS Metricas_Vendedor (
             id integer PRIMARY KEY AUTOINCREMENT,
             producto_id integer NOT NULL,
             nombre_vendedor TEXT NOT NULL,
@@ -36,6 +48,8 @@ def init_sqlite_db():
             FOREIGN KEY (producto_id) REFERENCES Productos(id)
         );
     ''') # 4to ejecutamos un script SQL que crea las tablas necesarias para nuestra base de datos.
+    # IF NOT EXISTS: la inicialización es segura de repetir (CONSTITUTION §3). Si las tablas ya
+    # existen no se tocan (ni se vacían ni se recrean); si faltan alguna u otras, solo se crean esas.
     conexion.commit() # 5to guardamos definitivamente los cambios realizados.
     conexion.close() # 6to cerramos la conexión con la base de datos.
 
