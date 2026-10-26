@@ -45,17 +45,17 @@ Es un **proyecto personal de un solo desarrollador**, sin intención declarada d
 **Implementado y verificado en el código actual del repositorio:**
 
 - Esquema de base de datos SQLite con tres tablas: `Productos`, `Historial_Precios`, `Metricas_Vendedor` (`database/schema.py`).
-- Conversión de montos entre COP y USD, con caché diario de tasas de cambio en un archivo JSON local (`services/currency.py`, `database/exchange_rates.json`).
+- Conversión de montos entre COP y USD con caché diario de tasas en un objeto único (`services/currency.py::convertir_moneda`, `database/tasas_cambio.json`): si el registro del JSON es de hoy se usa sin red; si no, se consulta la API (con `timeout`) y se sobreescribe el archivo.
 - Contrato común de scraper (`BaseScraper`) con extracción de HTML renderizado vía Playwright **asíncrono** (`scrapers/BaseScraper.py`).
 - Implementación concreta de scraper para **Amazon** (`scrapers/AmazonScraper.py`) que extrae `titulo`, `precio`, `moneda`, `url`, `vendedor`, `ventas` y `calificacion_promedio`, con detección de bloqueos (CAPTCHAs) y fijación de ubicación de entrega (Miami) en el orquestador.
-- Punto de entrada funcional (`main.py`) que consulta un producto de Amazon de extremo a extremo (`asyncio` + `obtener_datos()`).
+- Punto de entrada funcional (`main.py`) que consulta un producto de Amazon de extremo a extremo (`asyncio` + `obtener_datos()`), garantiza el esquema con `init_sqlite_db()` y **persiste cada consulta en SQLite**.
+- **Persistencia del ciclo completo en SQLite:** `BaseScraper.obtener_datos()` guarda los datos scrapeados vía la fachada transaccional `guardar_datos_producto()` (`INSERT OR IGNORE` en `Productos`, historial append-only en `Historial_Precios`, métricas omitidas si faltan en `Metricas_Vendedor`), con conversión previa a COP si `LOCAL_CURRENCY` está configurada y fallback honesto en USD; caché diaria activa (segunda consulta del mismo día se sirve de la BD sin navegar).
 - Función para verificar si un producto ya fue consultado en el día actual, como base para controlar el volumen de peticiones (`database/schema.py::ya_se_consulto_hoy`).
 - Carga de variables de entorno sensibles desde `.env`, excluido de control de versiones (`config/settings.py`).
 - `playwright-stealth` integrado en el orquestador (`Stealth().apply_stealth_async(page)`).
 
 **Planificado, mencionado en diseño o en documentación de contexto, pero AÚN NO presente en el código del repositorio** (ver [Roadmap](#roadmap)):
 
-- Conexión del scraper con SQLite: los datos scrapeados **aún no se insertan** en la base de datos (`INSERT` pendiente).
 - Analizador de ofertas que compare el precio actual contra el historial (`PRICE_DROP_THRESHOLD` aún sin consumir).
 - Módulo de notificaciones por Telegram (`python-telegram-bot` está en `requirements.txt` pero no se usa en ningún módulo todavía).
 - Rotación de proxies residenciales, delays aleatorios y rotación de User-Agents para scraping en segundo plano sostenido.
@@ -66,10 +66,10 @@ Es un **proyecto personal de un solo desarrollador**, sin intención declarada d
 
 Evidencia concreta del estado:
 
-- `main.py` está implementado: punto de entrada que conecta el scraper de Amazon (`asyncio` + `obtener_datos()`) e imprime el resultado. AÚN no conecta conversión de divisas, persistencia en base de datos ni notificaciones.
+- `main.py` está implementado: punto de entrada que conecta el scraper de Amazon (`asyncio` + `obtener_datos()`), inicializa `init_sqlite_db()` antes de leer/escribir, imprime el resultado y **persiste la consulta en SQLite**. AÚN no conecta analizador de ofertas ni notificaciones.
 - El scraper (`AmazonScraper` + `BaseScraper`) se ejecuta con Playwright en modo **headless** (`headless=True`) y con `playwright-stealth`, es decir, apto para segundo plano gráfico; sigue sin tratarse como un proceso desatendido probado a volumen.
 - No existen pruebas automatizadas versionadas (las baterías se crean y borran como temporales según `AGENTS.md` §6.4), ni configuración de integración continua.
-- No hay módulo de notificaciones ni de análisis de ofertas implementados, y los datos scrapeados aún no se insertan en SQLite.
+- No hay módulo de notificaciones ni analizador de ofertas implementados; la persistencia scrape→SQLite **ya está implementada** (esquema con `asin`, fachada transaccional única, caché diaria verificada con baterías aisladas de 25 pruebas).
 
 ## Stack tecnológico
 
@@ -87,7 +87,7 @@ Evidencia concreta del estado:
 
 ## Arquitectura del sistema
 
-El proyecto sigue un patrón **Template Method**: un orquestador común (`BaseScraper`) posee la infraestructura (Playwright, base de datos, control de flujo, detección de bloqueos) y los especialistas de tienda solo extraen datos del DOM. Los servicios de divisas y base de datos aún no están conectados entre sí por un analizador ni notificaciones.
+El proyecto sigue un patrón **Template Method**: un orquestador común (`BaseScraper`) posee la infraestructura (Playwright, base de datos, control de flujo, detección de bloqueos) y los especialistas de tienda solo extraen datos del DOM. La escritura scrape→SQLite está conectada mediante la fachada transaccional (`guardar_datos_producto`, que convierte a COP antes de la transacción con fallback honesto); aún no existe analizador de ofertas ni notificaciones que consuman ese historial.
 
 ```
 ┌──────────────────────────────┐
@@ -107,8 +107,9 @@ El proyecto sigue un patrón **Template Method**: un orquestador común (`BaseSc
 
 ┌───────────────────────┐        ┌──────────────────────────┐
 │ services/currency.py   │        │  database/schema.py       │
-│ currency_converter()   │        │  init_sqlite_db()          │
-│ (caché en JSON diario) │        │  ya_se_consulto_hoy()      │
+│ convertir_moneda()     │        │  init_sqlite_db()          │
+│ obtener_tasas()        │        │  ya_se_consulto_hoy()      │
+│ (caché JSON del día)   │        │  obtener_ultimo_registro() │
 └───────────────────────┘        │  obtener_ultimo_registro() │
                                  └──────────────────────────┘
 
@@ -117,18 +118,53 @@ El proyecto sigue un patrón **Template Method**: un orquestador común (`BaseSc
 │                        │  IDs de chat de Telegram por categoría
 └───────────────────────┘
 
-     main.py  ← Punto de entrada real: consulta un producto de
-                 Amazon e imprime el resultado (sin INSERT en BD aún).
+     main.py  ← Punto de entrada real: consulta un producto de Amazon,
+                  garantiza el esquema (init_sqlite_db) y persiste la
+                  consulta en tracker.db.
 ```
 
-**Flujo de datos** (implementado hasta el paso 2; el resto sigue el [Roadmap](#roadmap)):
+**Flujo de datos** (implementado hasta el paso 4; el resto sigue el [Roadmap](#roadmap)):
 
 1. Se define un `PRODUCT_ID` (ASIN) y una URL de producto de Amazon en `main.py`.
 2. `BaseScraper.obtener_datos()` consulta primero la BD: si el producto ya se consultó hoy, devuelve el registro guardado; si no, `AmazonScraper.extraer_datos()` renderiza la página con Playwright y extrae los datos con BeautifulSoup.
-3. *(No implementado)* `services/currency.py` convertiría el precio a la moneda local y/o USD, usando la tasa cacheada del día si ya existe.
-4. *(No implementado)* Los datos se insertarían en `database/tracker.db` (tablas `Productos`, `Historial_Precios`, `Metricas_Vendedor`).
+3. **(Implementado)** `services/currency.py::convertir_a_moneda_local()` convierte el precio a la moneda local **dentro de la fachada `guardar_datos_producto()`, antes de la transacción**; si `LOCAL_CURRENCY` no está configurada, guarda el par de origen (USD). Los valores convertidos quedan como histórico: `precio_local`/`moneda_local` en `Historial_Precios`.
+4. **(Implementado)** Los datos se insertan en `database/tracker.db` (tablas `Productos`, `Historial_Precios`, `Metricas_Vendedor`) en una sola transacción con `commit`/`rollback` en la fachada.
 5. *(No implementado)* Un analizador compararía el precio actual contra el historial para decidir si es una oferta.
 6. *(No implementado)* Un módulo de notificaciones enviaría un mensaje a Telegram, al chat correspondiente según `CHATS_ID` en `config/settings.py`.
+
+**Esquema vigente** (`init_sqlite_db()`, idempotente — `CREATE TABLE IF NOT EXISTS`; `Productos` con `asin` único, `titulo` y `categoria` nullable):
+
+```sql
+CREATE TABLE IF NOT EXISTS Productos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asin TEXT UNIQUE,
+    titulo TEXT NOT NULL,
+    url TEXT NOT NULL,
+    vendedor TEXT NOT NULL,
+    categoria TEXT,                    -- nullable
+    fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS Historial_Precios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id INTEGER NOT NULL,
+    precio_local REAL NOT NULL,        -- COP si hubo conversión; USD si no
+    moneda_local TEXT NOT NULL,        -- "COP" o "USD"
+    precio_usd REAL NOT NULL,          -- precio original del scraper (siempre USD)
+    fecha TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (producto_id) REFERENCES Productos(id)
+);
+
+CREATE TABLE IF NOT EXISTS Metricas_Vendedor (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    producto_id INTEGER NOT NULL,
+    nombre_vendedor TEXT NOT NULL,
+    total_ventas INTEGER NOT NULL,
+    calificacion_promedio REAL NOT NULL,
+    fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (producto_id) REFERENCES Productos(id)
+);
+```
 
 ## Estructura de directorios
 
@@ -139,9 +175,9 @@ comparador-precios/
 │   └── settings.py          # Rutas, variables de entorno, umbral de oferta
 ├── database/
 │   ├── __init__.py
-│   ├── schema.py            # init_sqlite_db(), ya_se_consulto_hoy(), obtener_ultimo_registro()
+│   ├── schema.py            # init_sqlite_db(), ContratoDatos, fachada guardar_datos_producto(), ya_se_consulto_hoy(), obtener_ultimo_registro()
 │   ├── tracker.db           # Base de datos SQLite real (versionada en git, ver Seguridad)
-│   └── exchange_rates.json  # Caché diario de tasas de cambio (generado en ejecución)
+│   └── tasas_cambio.json    # Caché del día: objeto único {"fecha", "COP", "USD"} (se sobreescribe)
 ├── docs/
 │   └── constitution.md      # Leyes inmutables de desarrollo del proyecto
 ├── scrapers/
@@ -243,12 +279,14 @@ python main.py
 **Usar el conversor de divisas en un script propio:**
 
 ```python
-from services.currency import currency_converter
+from services.currency import convertir_moneda
 
-resultado = currency_converter(100, "USD", "COP")  # devuelve el monto convertido (o el original si falla la conversión)
+resultado = convertir_moneda(100, "USD", "COP")  # devuelve el monto convertido (o el original si falla la conversión)
 ```
 
-> No existe todavía un ejemplo de uso end-to-end completo (scraper → conversión → base de datos): `main.py` ejecuta el scraping y la caché diaria, pero aún no llama a `currency_converter` ni persiste en SQLite.
+> La única pareja soportada es USD ↔ COP; `convertir_moneda(100, "USD", "USD")` devuelve el monto sin tocar la red, y otras parejas (p. ej. EUR) devuelven el monto con un aviso. La tasa del día se cachea en `database/tasas_cambio.json` (objeto único que se sobreescribe; si el registro es de hoy no se consulta la API).
+
+> No existe todavía un ejemplo de uso end-to-end completo (scraper → conversión → base de datos): `main.py` ejecuta el scraping y la caché diaria, pero aún no llama a `convertir_moneda` ni persiste en SQLite.
 
 ## Scripts disponibles
 
@@ -287,8 +325,8 @@ Al ejecutar un archivo su directorio reemplaza a la raíz en `sys.path` y los pa
 **El scraper no encuentra precio principal (solo "15 opciones desde ...")**
 El precio del buybox depende de la ubicación de entrega fijada en Miami (ZIP 33122). El widget de ubicación es *best-effort*: si falla se imprime "Aviso: no se pudo fijar la ubicación Miami" y se continúa sin precio principal.
 
-**`json.decoder.JSONDecodeError` al convertir divisas**
-`services/currency.py` ya captura esta excepción cuando `database/exchange_rates.json` está corrupto o vacío, y devuelve el monto original sin convertir. Si ocurre, revisa o borra manualmente ese archivo para que se regenere.
+**`json.decoder.JSONDecodeError` o respuesta rara de la API al convertir divisas**
+`services/currency.py::obtener_tasas()` captura el JSON corrupto o vacío y lo **autoregenera** con la consulta del día (ya no hace falta borrar nada a mano). Si la API falla (clave inválida, sin red o estado ≠ 200), se imprime el motivo y se devuelve el monto original sin convertir (degradación elegante). La caché vive en `database/tasas_cambio.json` como objeto único `{"fecha", "COP", "USD"}`.
 
 **`ImportError: cannot import name 'stealth_async'` de `playwright_stealth`**
 El proyecto usa `playwright-stealth` 2.x: la API correcta es la clase `Stealth` con `apply_stealth_async(page)` (la función `stealth_async` era de la 1.x). Verificado en `requirements.txt` (`playwright-stealth>=1.0.6`) y en `scrapers/BaseScraper.py`.
@@ -320,12 +358,12 @@ Observadas de forma consistente en el código actual:
 - [x] Scraper concreto para **Amazon** (`AmazonScraper`), con detección de CAPTCHA y ubicación de entrega Miami
 - [x] Verificación de si un producto ya se consultó en el día actual (`ya_se_consulto_hoy`)
 - [x] Punto de entrada `main.py` de extremo a extremo (consulta de un producto de Amazon)
+- [x] Persistencia: `INSERT` de los datos scrapeados en SQLite mediante la fachada transaccional `guardar_datos_producto` (conversión a COP previa con fallback honesto, historial append-only, métricas opcionales; crecimiento diario por `ya_se_consulto_hoy`)
 - [x] Migración de `EbayScraper` a `AmazonScraper` y de Playwright síncrono a asíncrono (el pivote ya está comprometido al repositorio)
 
 **Planificado (mencionado en documentación de contexto y/o discusiones de diseño, sin código en el repositorio todavía):**
 
-- [ ] Persistencia: `INSERT`/`UPDATE` de los datos scrapeados en SQLite (los datos aún no se guardan; el orquestador solo lee)
-- [ ] Conexión del resto del flujo en `main.py`: conversión → persistencia → análisis → notificación
+- [ ] Conexión del resto del flujo: análisis del precio guardado → notificación (la persistencia ya cierra el ciclo de escritura)
 - [ ] Analizador de ofertas que use `PRICE_DROP_THRESHOLD` contra el historial de precios
 - [ ] Módulo de notificaciones por Telegram (`python-telegram-bot`)
 - [ ] Estrategia de control de volumen para scraping sostenido: delays aleatorios, rotación de User-Agent, evaluación de proxies residenciales
