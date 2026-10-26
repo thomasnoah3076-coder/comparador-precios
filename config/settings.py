@@ -7,7 +7,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 DB_PATH_TRACKER = BASE_DIR / "database" / "tracker.db"
 
-DB_PATH_EXCHANGE_RATES = BASE_DIR / "database" / "exchange_rates.json"
+# Ruta del JSON con la tasa de cambio del día. Se guarda como objeto único
+# ({"fecha": ..., "COP": ..., "USD": ...}) y se sobreescribe en cada consulta nueva.
+RUTA_TASAS_CAMBIO = BASE_DIR / "database" / "tasas_cambio.json"
 
 # Generalmente se suele dejar esta función vacia, y por si sola buscará el archivo .env en el 
 # directorio donde se ejecuta, pero como en este caso la estructura del proyecto es mas 

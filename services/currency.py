@@ -1,80 +1,117 @@
+
+import json
+from datetime import date
 import requests
 from config.settings import (
+    RUTA_TASAS_CAMBIO,
     EXCHANGE_RATE_API_KEY,
     EXCHANGE_RATE_API_URL,
-    DB_PATH_EXCHANGE_RATES,
+    DEFAULT_CURRENCY
 )
-import json
-from datetime import date, datetime
 
-def currency_converter(monto, moneda_origen, moneda_destino):
-    try:
-        DB_PATH_EXCHANGE_RATES.parent.mkdir(parents=True, exist_ok=True)  # Crea la carpeta si no existe
-        if DB_PATH_EXCHANGE_RATES.is_file(): # Verifica la existencia de un archivo.
-            try:
-                USD_en_COP, COP_en_USD = load_rates (DB_PATH_EXCHANGE_RATES)
-                
-                resultado = amount_calculate(monto, moneda_origen, USD_en_COP, COP_en_USD)
-                
-                print(f"Un dolar es igual a: {USD_en_COP} pesos colombianos.")
-                # Devuelve el monto convertido (si no hubo conversión, amount_calculate
-                # devuelve el monto original), evitando que la función retorne None.
-                return resultado
-            except json.decoder.JSONDecodeError:
-                print("El archivo json esta corrupto o vacio.")
-                return monto
-            except FileNotFoundError:
-                print("El archivo no fue encontrado.")
-                return monto
-            
-        else:
-            create_json(DB_PATH_EXCHANGE_RATES, monto)
-            # El archivo acaba de crearse vacío: aún no hay tasas que aplicar,
-            # se devuelve el monto sin convertir (degradación elegante).
-            return monto
-    except Exception as e:
-        print(f"Error al procesar la respuesta: {e}")
-        # Degradación elegante: ante cualquier error se devuelve el monto sin convertir.
+# Segundos máximos de espera a la API de divisas (evita colgar el proceso: un cuelgue
+# de red NO es una excepción, el try/except no lo salvaría sin un timeout).
+TIMEOUT_API_SEGUNDOS = 10
+
+
+def convertir_moneda(monto: float, moneda_origen: str, moneda_destino: str) -> float:
+    if moneda_origen == moneda_destino:
         return monto
 
-def amount_calculate (monto, moneda_origen, USD_en_COP, COP_en_USD):
+    pareja_soportada = (
+        moneda_origen == "USD" and moneda_destino == "COP"
+    ) or (
+        moneda_origen == "COP" and moneda_destino == "USD"
+    )
+    if not pareja_soportada:
+        print(f"Par de monedas no soportado: {moneda_origen} -> {moneda_destino}.")
+        print("Solo se convierte entre USD y COP. Se devuelve el monto sin convertir.")
+        return monto
+
+    try:
+        usd_en_cop = obtener_tasas()
+        if usd_en_cop is None:
+            return monto
+        return calcular_monto(monto, moneda_origen, usd_en_cop)
+    except Exception as error:
+        print(f"Error inesperado al convertir la moneda: {error}")
+        return monto
+
+
+def obtener_tasas() -> float | None:
+    hoy = date.today().isoformat()
+
+    try:
+        with open(RUTA_TASAS_CAMBIO, "r", encoding="utf-8") as archivo_lectura:
+            registro = json.load(archivo_lectura)
+
+        if isinstance(registro, dict) and registro.get("fecha") == hoy:
+            return float(registro["COP"])
+        if isinstance(registro, dict):
+            print(f"La tasa cacheada es del {registro.get('fecha')}: se consulta la API.")
+
+    except FileNotFoundError:
+        print("No existe el archivo de tasas: se consultará la API.")
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+        print("El archivo de tasas está vacío o corrupto: se regenerará con la API.")
+
+    try:
+        respuesta = requests.get(
+            EXCHANGE_RATE_API_URL,
+            params={"apikey": EXCHANGE_RATE_API_KEY},
+            timeout=TIMEOUT_API_SEGUNDOS,
+        )
+    except requests.RequestException as error:
+        print(f"No se pudo consultar la API de divisas: {error}")
+        return None
+
+    if respuesta.status_code != 200:
+        print(f"La API de divisas respondió con estado {respuesta.status_code}.")
+        return None
+
+    try:
+        usd_en_cop = round(float(respuesta.json()["conversion_rates"]["COP"]), 2)
+    except (KeyError, TypeError, ValueError):
+        print("La respuesta de la API no tiene el formato esperado (conversion_rates.COP).")
+        return None
+
+    if usd_en_cop <= 0:
+        print("La tasa recibida no es válida (cero o negativa).")
+        return None
+
+    # --- 3. Caché: se SOBRESCRIBE el JSON con el único registro del día ---
+    guardar_tasas({
+        "fecha": hoy,
+        "COP": usd_en_cop,
+        "USD": round(1 / usd_en_cop, 8),
+    })
+    return usd_en_cop
+
+
+def calcular_monto(monto: float, moneda_origen: str, usd_en_cop: float) -> float:
+
     match moneda_origen:
         case "USD":
-            monto_en_COP = monto * USD_en_COP
-            print(f"{monto} dólares son {monto_en_COP} pesos colombianos.")
-            return monto_en_COP
+            return monto * usd_en_cop
         case "COP":
-            monto_en_USD = monto * COP_en_USD
-            print(f"{monto} pesos colombianos son {monto_en_USD} dólares.")
-            return monto_en_USD
-    print("Moneda de origen no soportada.")
+            return monto / usd_en_cop
+    print(f"Moneda de origen no soportada: {moneda_origen}.")
     return monto
 
-def load_rates (DB_PATH_EXCHANGE_RATES):
-    print ("El archivo exchange_rates.json existe.")
-    with open(DB_PATH_EXCHANGE_RATES, "r", encoding="utf-8") as a_lectura: # Lee el archivo .json
-        lista = json.load(a_lectura)
-    if lista and lista[-1].get("date") == datetime.today().strftime("%Y-%m-%d"): # Si la lista tiene elementos y su ultima posición hay un diccionario con la clave "date" y es igual a hoy utiliza los valores del diccionario.
-        USD_en_COP = lista[-1].get("COP")
-        COP_en_USD = lista[-1].get("USD")
-        print("Tasas de cambio ya consultadas el dia de hoy.")
-        return USD_en_COP, COP_en_USD
-    else:
-        respuesta = requests.get(EXCHANGE_RATE_API_URL, params={"apikey": EXCHANGE_RATE_API_KEY}) # Se hace dentro de un diccionario, por buenas practicas de seguridad y por practicidad.
-        if (respuesta.status_code == 200):
-            data = respuesta.json() # Convierte la respuesta en un diccionario de Python    
-            USD_en_COP = round(data["conversion_rates"]["COP"],2) # Accede al diccionario y vuelves a acceder al diccionario de conversion_rates y luego a la clave COP para obtener el valor de la tasa de cambio.
-            COP_en_USD = round(1 / USD_en_COP, 8)
-            lista.append({"date":datetime.today().strftime("%Y-%m-%d"), "COP":USD_en_COP, "USD":COP_en_USD})
-            with open(DB_PATH_EXCHANGE_RATES, "w", encoding="utf-8") as a_escritura:
-                json.dump(lista, a_escritura, indent=4, ensure_ascii=False)
-            print("Tasa de cambio nueva ha sido guardada.")
-            return USD_en_COP, COP_en_USD
-        else:
-            print(f"Error al obtener la tasa de cambio: {respuesta.status_code}")
 
-def create_json(DB_PATH_EXCHANGE_RATES, monto):
-    print("El archivo no existe :( No te preocupes vamos a crearlo ahora :)")
-    with open(DB_PATH_EXCHANGE_RATES, "w", encoding="utf-8") as a_escritura: # El modo w o write tambien sirve para crear un archivo si este no se encuentra
-        json.dump([], a_escritura, indent=4, ensure_ascii=False)
-    return monto
+def guardar_tasas(tasas: dict) -> None:
+    with open(RUTA_TASAS_CAMBIO, "w", encoding="utf-8") as archivo_escritura:
+        json.dump(tasas, archivo_escritura, indent=4, ensure_ascii=False)
+
+def convertir_a_moneda_local(monto: float, moneda_origen: str) -> tuple[float, str]:
+    if DEFAULT_CURRENCY is None or DEFAULT_CURRENCY == "":
+        print("No se puede convertir moneda.")
+        return monto, moneda_origen
+
+    monto_convertido = convertir_moneda(monto, moneda_origen, DEFAULT_CURRENCY)
+
+    if monto_convertido == monto: # Si el monto no cambio quiere decir que la moneda ya estaba en pesos colombianos.
+        return monto, moneda_origen
+    return monto_convertido, DEFAULT_CURRENCY
+
+
