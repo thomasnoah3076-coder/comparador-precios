@@ -2,13 +2,10 @@ import sqlite3 # 1ro se importa la librería sqlite3 para poder trabajar con bas
 from datetime import date
 from pathlib import Path
 import sys
+from dataclasses import dataclass, fields
+import typing
+from services.currency import convertir_a_moneda_local
 
-# Arranque de ruta para permitir la EJECUCIÓN DIRECTA del archivo (python database/schema.py).
-# Al ejecutar un archivo, Python pone SU directorio (database/) en sys.path, no la raíz del
-# proyecto, y "from config.settings import ..." fallaría con ModuleNotFoundError.
-# El guard (__package__ vacío) garantiza que esto solo ocurra al ejecutar el archivo directamente:
-# al importarlo como paquete (import database.schema) o correrlo con -m (python -m database.schema),
-# __package__ vale "database" y la raíz ya está en sys.path (sin efectos secundarios).
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -21,10 +18,11 @@ def init_sqlite_db():
     cursor.executescript('''
         CREATE TABLE IF NOT EXISTS Productos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
+            asin TEXT UNIQUE,
+            titulo TEXT NOT NULL,
             url TEXT NOT NULL,
             vendedor TEXT NOT NULL,
-            categoria TEXT NOT NULL,
+            categoria TEXT,
             fecha_creacion TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -53,35 +51,33 @@ def init_sqlite_db():
     conexion.commit() # 5to guardamos definitivamente los cambios realizados.
     conexion.close() # 6to cerramos la conexión con la base de datos.
 
-def ya_se_consulto_hoy(conn, product_id: int) -> bool:
+def ya_se_consulto_hoy(conn: sqlite3.Connection, product_id: int | None) -> bool:
     cursor = conn.execute(
-        "SELECT fecha FROM Historial_Precios WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1",
+        "SELECT DATE(fecha, 'localtime') FROM Historial_Precios WHERE producto_id = ? ORDER BY fecha DESC LIMIT 1",
         (product_id,)
     )
     row = cursor.fetchone()
     if row is None or row[0] is None:
         return False
     ultima_fecha = row[0]
-    # El formato guardado es un TIMESTAMP completo ("2026-10-14 12:15:20"),
-    # por lo que solo se compara la parte de fecha ("2026-10-14") con hoy.
-    return ultima_fecha.startswith(date.today().isoformat())
+    # CURRENT_TIMESTAMP escribe en UTC; DATE(..., 'localtime') normaliza a la hora
+    # local antes de comparar, para usar una sola base temporal (Subtarea 4.1.2).
+    return str(ultima_fecha) == date.today().isoformat()
 
 
-def obtener_ultimo_registro(conn, product_id: int) -> dict:
-    query = """
+def obtener_ultimo_registro(conn :sqlite3.Connection, product_id: int | None) -> dict:
+    cursor = conn.execute('''
         SELECT 
-            p.nombre,
-            (SELECT precio_local FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS precio,
-            (SELECT moneda_local FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS moneda,
+            p.titulo,
+            (SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS precio,
+            'USD' AS moneda,
             p.url,
             p.vendedor,
             (SELECT total_ventas FROM Metricas_Vendedor WHERE producto_id = p.id ORDER BY fecha_registro DESC LIMIT 1) AS ventas,
             (SELECT calificacion_promedio FROM Metricas_Vendedor WHERE producto_id = p.id ORDER BY fecha_registro DESC LIMIT 1) AS rating
         FROM Productos p
         WHERE p.id = ?
-    """
-
-    cursor = conn.execute(query, (product_id,))
+    ''', (product_id,))
     row = cursor.fetchone()
 
     # Si no se encuentra el producto en la tabla principal
@@ -107,5 +103,124 @@ def obtener_ultimo_registro(conn, product_id: int) -> dict:
         "calificacion_promedio": row[6]
     }
 
-if __name__ == "__main__":
-    init_sqlite_db() # 7mo llamamos a la función init_sqlite_db() para inicializar la base de datos.
+@dataclass
+class ContratoDatos:
+    titulo: str
+    precio: float
+    moneda: str
+    url: str
+    vendedor: str
+    ventas: int | None = None
+    calificacion_promedio: float | None = None
+
+    @classmethod
+    def filtrar_diccionario(cls, datos: dict) -> "ContratoDatos":
+
+        if not isinstance(datos, dict):
+            raise TypeError("Datos inválidos: se esperaba un diccionario")
+
+        claves_validas = {campo.name for campo in fields(cls)}
+
+        datos_filtrados = {k: v for k, v in datos.items() if k in claves_validas}
+
+        return cls(**datos_filtrados)
+
+    def __post_init__(self):
+
+        for nombre, valor in (
+            ("titulo", self.titulo),
+            ("moneda", self.moneda),
+            ("url", self.url),
+            ("vendedor", self.vendedor),
+        ):
+            if not isinstance(valor, str):
+                raise TypeError(f"{nombre} debe ser texto")
+
+        if isinstance(self.precio, bool) or not isinstance(self.precio, (int, float)):
+            raise TypeError("El precio debe ser numérico")
+
+        self.precio = float(self.precio)
+
+        if not self.precio > 0:
+            raise ValueError("El precio debe ser mayor que cero")
+
+        if self.ventas is not None:
+            if isinstance(self.ventas, bool) or not isinstance(self.ventas, int):
+                raise TypeError("Las ventas deben ser un entero o None")
+        if self.calificacion_promedio is not None:
+            if isinstance(self.calificacion_promedio, bool) or not isinstance(
+                self.calificacion_promedio, (int, float)
+            ):
+                raise TypeError("La calificación debe ser numérica o None")
+            self.calificacion_promedio = float(self.calificacion_promedio)
+
+
+def buscar_id_producto (conn: sqlite3.Connection, asin: str ) -> int | None:
+    cursor = conn.cursor()
+    cursor.execute("SELECT Productos.id FROM Productos WHERE asin = ?", (asin,))
+    producto_id = cursor.fetchone()
+    if not producto_id:
+        return None
+    return producto_id[0]
+
+
+def obtener_o_crear_producto(conn: sqlite3.Connection, asin: str, titulo: str, url: str, vendedor: str, categoria: str | None = None) -> int:
+    cursor = conn.cursor()
+    consulta_sql = '''
+            INSERT OR IGNORE INTO Productos (asin, titulo, url, vendedor, categoria)
+            VALUES (?, ?, ?, ?, ?)
+        '''
+    cursor.execute(consulta_sql, (asin, titulo, url, vendedor, categoria))
+
+    cursor.execute("SELECT id FROM Productos WHERE asin = ?", (asin,))
+    return cursor.fetchone()[0]
+
+def insertar_historial_precio(conn: sqlite3.Connection, producto_id: int, precio_local: float, moneda_local: str, precio_usd: float) -> None:
+    cursor = conn.cursor()
+    consulta_sql = '''
+                INSERT INTO Historial_Precios (producto_id, precio_local, moneda_local, precio_usd)
+                VALUES (?, ?, ?, ?)
+            '''
+    cursor.execute(consulta_sql, (producto_id, precio_local, moneda_local, precio_usd))
+
+def insertar_metricas_vendedor(conn: sqlite3.Connection, producto_id: int, nombre_vendedor: str | None, total_ventas: int | None, calificacion_promedio: float | None) -> bool:
+    if total_ventas is None or calificacion_promedio is None:
+        return False
+    cursor = conn.cursor()
+    consulta_sql = '''
+                INSERT INTO Metricas_Vendedor (producto_id, nombre_vendedor, total_ventas, calificacion_promedio)
+                VALUES(?, ?, ?, ?)
+    '''
+    cursor.execute(consulta_sql, (producto_id, nombre_vendedor, total_ventas, calificacion_promedio))
+    return True
+
+def guardar_datos_producto(conn: sqlite3.Connection, asin: str, datos: dict, categoria: str | None = None) -> bool:
+    if not isinstance(asin, str) or not asin.strip():
+        print("No se pudo guardar: el ASIN debe ser texto no vacío.")
+        return False
+    if conn is None:
+        print("No se pudo guardar: conexión inválida.")
+        return False
+
+    try:
+        verificador_datos = ContratoDatos.filtrar_diccionario(datos)
+
+        precio_local, moneda_local = convertir_a_moneda_local(verificador_datos.precio, verificador_datos.moneda)
+
+        producto_id = obtener_o_crear_producto(conn, asin, verificador_datos.titulo, verificador_datos.url, verificador_datos.vendedor,  categoria)
+
+        insertar_historial_precio(conn, producto_id, precio_local, moneda_local, verificador_datos.precio)
+
+        insertar_metricas_vendedor(conn, producto_id, verificador_datos.vendedor, verificador_datos.ventas,verificador_datos.calificacion_promedio)
+
+        conn.commit()
+
+        return True
+    except Exception as e:
+        try:
+            if conn is not None:
+                conn.rollback()
+        except Exception:
+            pass
+        print(f"No se pudo guardar: {e}.")
+        return False
