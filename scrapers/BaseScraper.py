@@ -2,8 +2,10 @@
 from abc import ABC, abstractmethod
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
-from database.schema import ya_se_consulto_hoy, obtener_ultimo_registro
+from database.schema import ya_se_consulto_hoy, obtener_ultimo_registro,buscar_id_producto, guardar_datos_producto
 from urllib.parse import urlparse
+
+
 class BaseScraper(ABC):
 
     ZIP_MIAMI = "33122"
@@ -12,18 +14,19 @@ class BaseScraper(ABC):
         {"name": "i18n-prefs", "value": "USD", "domain": ".amazon.com", "path": "/"},
     ]
 
-
     def __init__(self, conn):
         self.conn = conn
 
 
-    async def obtener_datos(self, product_id: str, url: str) -> dict:
-        if ya_se_consulto_hoy(self.conn, product_id):
-            registro = obtener_ultimo_registro(self.conn, product_id)
+    async def obtener_datos(self, producto_id: str, url: str) -> dict:
+        base_datos_id = buscar_id_producto(self.conn, producto_id)
+        if base_datos_id is not None and ya_se_consulto_hoy(self.conn, base_datos_id):
+            registro = obtener_ultimo_registro(self.conn, base_datos_id)
             registro["origen"] = "base_de_datos"
             return registro
         datos = await self.extraer_datos(url)
         datos["origen"] = "scraping"
+        guardar_datos_producto(self.conn, producto_id, datos)
         return datos
 
 
@@ -55,11 +58,7 @@ class BaseScraper(ABC):
                 await browser.close()
 
     async def _fijar_ubicacion_miami(self, page) -> None:
-        """
-        Fija la ubicación de entrega en Miami mediante el widget
-        "Enviar a" de la cabecera. Best-effort: si el widget cambia o falla, se
-        imprime un aviso y se continúa con la ubicación por defecto.
-        """
+
         try:
             # Navega a la página principal de Amazon.
 
@@ -127,6 +126,7 @@ class BaseScraper(ABC):
         if dom_html is None or any(indicator in dom_html for indicator in error_indicators):
             raise Exception("Error: HTML contiene indicadores de bloqueo o está vacío.")
         return True
+
 
     @staticmethod
     async def validar_url_amazon(url) -> bool:
