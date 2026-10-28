@@ -156,6 +156,8 @@ class ContratoDatos:
 
 
 def buscar_id_producto (conn: sqlite3.Connection, asin: str ) -> int | None:
+    """ Busca él id de un producto en la base de datos, con base en su codigo asin (str).
+    Ejecuta una consulta a la base de datos, verifica si él id existe y lo retorna; de lo contrario retorna None."""
     cursor = conn.cursor()
     cursor.execute("SELECT Productos.id FROM Productos WHERE asin = ?", (asin,))
     producto_id = cursor.fetchone()
@@ -224,3 +226,27 @@ def guardar_datos_producto(conn: sqlite3.Connection, asin: str, datos: dict, cat
             pass
         print(f"No se pudo guardar: {e}.")
         return False
+
+COLUMNAS_HISTORIAL = ("fecha", "precio_usd", "titulo")
+
+def obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]:
+    """Devuelve el historial de precios de un producto, del más antiguo al más reciente.
+
+    Retorna una lista de diccionarios con las claves `fecha`, `precio_usd` y `titulo`;
+    `[]` si el producto no tiene registros, nunca `None`. Es de solo lectura: no
+    confirma, no revierte ni cierra la conexión recibida, y no modifica `row_factory`.
+    """
+    cursor = conn.execute(
+        "SELECT h.fecha, h.precio_usd, p.titulo "
+        "FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id "
+        "WHERE h.producto_id = ? "
+        "ORDER BY h.fecha ASC, h.id ASC",
+        (producto_id,),
+    )
+
+    filas = cursor.fetchall()
+
+    if filas and len(filas[0]) != len(COLUMNAS_HISTORIAL):
+        raise ValueError("El SELECT y COLUMNAS_HISTORIAL no coinciden")
+
+    return [dict(zip(COLUMNAS_HISTORIAL, fila)) for fila in filas]
