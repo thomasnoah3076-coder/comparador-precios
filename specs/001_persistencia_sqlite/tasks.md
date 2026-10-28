@@ -122,7 +122,7 @@ Flujo de comportamiento:
 ## Tarea Principal 5: Orquestación de la persistencia en `BaseScraper`
 
 ### Subtarea 5.1: `BaseScraper.obtener_datos` — resolución de identidad y caché diaria
-		Flujo de comportamiento:
+			 Flujo de comportamiento:
 1. Mantener la firma `async def obtener_datos(self, product_id: str, url: str) -> dict`, donde `product_id: str` es el ASIN por compatibilidad con la firma pública del plan.
 2. Resolver el identificador con `buscar_id_producto(self.conn, product_id)` (el `producto_id` recibido es el ASIN de `main.py`).
 3. Si el identificador no es `None` y `ya_se_consulto_hoy(self.conn, identificador)` es `True`, obtener `registro = obtener_ultimo_registro(self.conn, identificador)`.
