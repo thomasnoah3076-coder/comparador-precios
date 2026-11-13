@@ -66,7 +66,7 @@ obtener_datos(producto_id, url)
 4. `guardar_datos_producto()` convierte el precio a la moneda local, inserta el producto (`INSERT OR IGNORE` por `asin`), añade una fila al historial y registra las métricas si vienen completas. Todo en una transacción con `commit`/`rollback`.
 5. *Pendiente:* el analizador decidirá si el precio actual es una oferta y un módulo de notificaciones enviará el aviso a Telegram.
 
-**Esquema** ([`database/schema.py`](database/schema.py), idempotente con `CREATE TABLE IF NOT EXISTS`)
+**Esquema** ([`database/esquema.py`](database/esquema.py), idempotente con `CREATE TABLE IF NOT EXISTS`)
 
 - `Productos` — identidad del artículo: `asin` (único), `titulo`, `url`, `vendedor`, `categoria` (opcional).
 - `Historial_Precios` — *append-only*: `precio_local`, `moneda_local`, `precio_usd`, `fecha`.
