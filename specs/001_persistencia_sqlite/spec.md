@@ -44,7 +44,7 @@ Hoy el sistema **no aprende de cada consulta**:
 ### Justificación de negocio/técnica
 - **Cimiento del roadmap:** los pasos 4 y 5 consumen directamente las filas que esta etapa crea. No se pueden construir sobre una BD vacía.
 - **Eficiencia y anti-scraping:** activa la caché diaria (primera medida real de control de volumen de peticiones ya construida en el paso 7 histórico).
-- **Arquitectura:** completa el Template Method — el orquestador ya posee la infraestructura de BD (lectura); le falta la escritura. La lógica SQL vive en `database/schema.py` (dueño del esquema), el scraper hijo sigue ajeno a la BD (SoC).
+- **Arquitectura:** completa el Template Method — el orquestador ya posee la infraestructura de BD (lectura); le falta la escritura. La lógica SQL vive en `../../database/esquema.py` (dueño del esquema), el scraper hijo sigue ajeno a la BD (SoC).
 - **Momento:** es el siguiente paso no-completado del roadmap (`MEMORY.md` §5) y el plan consolidado ya tiene las 7 decisiones del Director cerradas (ver `plan.md`).
 
 ### Fuera de alcance de esta spec

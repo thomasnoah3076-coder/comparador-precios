@@ -9,11 +9,11 @@
 
 | Principio | Cómo se aplica en esta especificación |
 |---|---|
-| **KISS** | 0 módulos nuevos: el SQL vive en `database/schema.py` (ya es el repositorio). No se crea `services/persistence.py` ni dependencias nuevas (la validación usa **dataclass de stdlib**, no Pydantic). |
+| **KISS** | 0 módulos nuevos: el SQL vive en `../../database/esquema.py` (ya es el repositorio). No se crea `services/persistence.py` ni dependencias nuevas (la validación usa **dataclass de stdlib**, no Pydantic). |
 | **Métodos/variables en español** | Todas las funciones y parámetros en español: `buscar_id_producto`, `obtener_o_crear_producto`, `insertar_historial_precio`, `insertar_metricas_vendedor`, `guardar_datos_producto`. |
 | **Idempotencia / estado predecible** | `init_sqlite_db()` sigue con `CREATE TABLE IF NOT EXISTS` (5ª ronda). `obtener_o_crear_producto` usa `INSERT OR IGNORE` por `asin` → repetir nunca duplica productos. El guardado es **transaccional** (commit único o rollback total): el estado de la BD es siempre "todo guardado" o "nada guardado", nunca parcial. |
 | **Estado predecible ante errores** | Fallo de BD → `rollback` + aviso por consola + el scrape no se pierde (patrón *best-effort* ya usado con el widget de Miami). |
-| **Separación de responsabilidades** | SQL solo en `database/schema.py`; orquestación solo en `BaseScraper`; `AmazonScraper` **no se modifica** y sigue sin saber que la BD existe. |
+| **Separación de responsabilidades** | SQL solo en `../../database/esquema.py`; orquestación solo en `BaseScraper`; `AmazonScraper` **no se modifica** y sigue sin saber que la BD existe. |
 
 ---
 
@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS Productos (
 ## 3. Patrones de diseño
 
 1. **Template Method (consolidado):** `BaseScraper.obtener_datos()` define el esqueleto *consultar caché → extraer → persistir → retornar*; los pasos concretos son métodos/paquetes reutilizables. Se añade el paso que faltaba (persistir).
-2. **Repositorio:** `database/schema.py` es la capa de repositorio (todo SQL vive ahí); el orquestador solo la invoca. Nada de SQL en `BaseScraper.py`.
+2. **Repositorio:** `../../database/esquema.py` es la capa de repositorio (todo SQL vive ahí); el orquestador solo la invoca. Nada de SQL en `BaseScraper.py`.
 3. **Fachada transaccional:** `guardar_datos_producto` es la única puerta de escritura; expone una operación atómica de alto nivel (`bool`) ocultando 3 inserts.
 4. **Validación por contrato tipado (dataclass):** frontera de robustez entre lo que produce el scraper y lo que acepta la BD.
 5. **Patrón de transacción a documentar:** *las funciones helper no hacen `commit`; solo la fachada cierra la transacción* (si cada helper hiciera commit, el rollback sería imposible → filas parciales).
@@ -103,7 +103,7 @@ BaseScraper.obtener_datos(product_id=ASIN, url)
 
 ---
 
-## 5. Firma de las funciones nuevas (`database/schema.py`)
+## 5. Firma de las funciones nuevas (`../../database/esquema.py`)
 
 | Función                                                  | Recibe                                                                                                                  | Retorna             | Robustez                                                                                                                                                                                                                                                                                                                                                                          |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -126,7 +126,7 @@ BaseScraper.obtener_datos(product_id=ASIN, url)
 
 | Archivo | Acción |
 |---|---|
-| `database/schema.py` | MODIFICAR: CREATE TABLE de `Productos` (asin + categoria nullable), aviso de esquema viejo, 5 funciones nuevas, dataclass `ContratoDatos`. |
+| `../../database/esquema.py` | MODIFICAR: CREATE TABLE de `Productos` (asin + categoria nullable), aviso de esquema viejo, 5 funciones nuevas, dataclass `ContratoDatos`. |
 | `scrapers/BaseScraper.py` | MODIFICAR: flujo de `obtener_datos()` (paso 1 de resolución ASIN, paso 4 de persistencia best-effort). |
 | `main.py` | MODIFICAR: llamar `init_sqlite_db()` al arrancar. |
 | `services/currency.py` | MODIFICAR: helper `convertir_a_moneda_local` (regla de verdad + fallback; enmienda 2). |

@@ -20,7 +20,7 @@ Flujo de comportamiento:
 
 ### Subtarea 1.2: `ContratoDatos` — definición de la dataclass
 Flujo de comportamiento:
-1. Declarar `ContratoDatos` con `@dataclass` en `database/schema.py`.
+1. Declarar `ContratoDatos` con `@dataclass` en `../../database/esquema.py`.
 2. Declarar los siete campos con el mismo nombre y orden del Contrato §4: `titulo: str`, `precio: float`, `moneda: str`, `url: str`, `vendedor: str`.
 3. Declarar `ventas: int | None = None` y `calificacion_promedio: float | None = None` con default explícito, para que un diccionario que omita esas claves se construya sin `TypeError` y el precio no se pierda.
 4. Mantener la clase como validación interna del repositorio: el contrato público de `obtener_datos()` sigue siendo `dict`.
@@ -53,7 +53,7 @@ Flujo de comportamiento:
 5. En caso contrario, retornar `(monto_convertido, DEFAULT_CURRENCY)`.
 6. No añadir `try/except`: la función delegada no propaga excepciones y la composición debe mantenerse legible.
 
-## Tarea Principal 3: Repositorio de escritura en `database/schema.py`
+## Tarea Principal 3: Repositorio de escritura en `../../database/esquema.py`
 
 ### Subtarea 3.1: `buscar_id_producto` — resolución de ASIN a id entero
 Flujo de comportamiento:
@@ -184,7 +184,7 @@ Flujo de comportamiento:
 
 ### Subtarea 7.4: Comprobación del ciclo completo, bordes de fecha y limpieza
 Flujo de comportamiento:
-1. Ejecutar `py_compile` sobre `database/schema.py`, `services/currency.py`, `scrapers/BaseScraper.py` y `main.py`.
+1. Ejecutar `py_compile` sobre `../../database/esquema.py`, `services/currency.py`, `scrapers/BaseScraper.py` y `main.py`.
 2. Fijar la ruta temporal con `monkeypatch.setattr(database.schema, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))` y abrir la conexión de prueba.
 3. Parchear el destino real con `monkeypatch.setattr` sobre `scrapers.AmazonScraper.AmazonScraper.extraer_datos` o sobre el atributo homónimo de la instancia bajo prueba, que es `AmazonScraper` y no `BaseScraper`: la subclase sobrescribe el método, así que parchear `BaseScraper.extraer_datos` no intercepta `self.extraer_datos(url)` y la prueba navegaría de verdad a Amazon. Ejecutar `AmazonScraper(conn).obtener_datos` con la base de datos temporal y `services.currency.DEFAULT_CURRENCY` anulado, verificando el origen `scraping` y las filas persistidas con el par de moneda de origen.
 4. Ejecutar `obtener_datos` una segunda vez el mismo día, con el mismo mock y `DEFAULT_CURRENCY` anulado, y verificar `origen` igual a `base_de_datos` sin nueva navegación ni nueva escritura.
