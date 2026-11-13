@@ -7,10 +7,8 @@ from database.esquema import init_sqlite_db
 from scrapers.AmazonScraper import AmazonScraper
 
 # Constantes editables del módulo (Subtarea 6.1.5).
-PRODUCT_ID = "B09XLK9GVS"
-URL_PRODUCTO = "https://www.amazon.com/BellaVita-Luxury-Womens-Cologne-Set/dp/B09XLK9GVS/?_encoding=UTF8&pd_rd_w=29OPu&content-id=amzn1.sym.aa180eba-14de-4cee-a59e-364a439570fb&pf_rd_p=aa180eba-14de-4cee-a59e-364a439570fb&pf_rd_r=AJD52JA4QBA1H07N78K3&pd_rd_wg=JSUMx&pd_rd_r=37e78470-1879-4649-8e63-a71f31a6c726&ref_=pd_hp_d_r_btf_sspa_dk_gateway&ie=UTF8&psc=1&sp_csd=d2lkZ2V0TmFtZT1zcF9ob21lcGFnZQ=="
-
-
+PRODUCT_ID = "B07WC5V4QN"
+URL_PRODUCTO = "https://www.amazon.com/-/es/Afnan-Supremacy-Edición-Coleccionista-líquidas/dp/B07WC5V4QN/ref=sr_1_1?crid=37MWVAZYGDRSM&dib=eyJ2IjoiMSJ9.K1bCrvxaVLtsIJxYGCG45UJzC_0qWPdxIe-33bZnx8pTrSwdmNQDqAADKo9SNdvSYN509EL4PC8kPSYI0SXnEGvJd7EzwNGxYHuqPv1pHj9qiKQ9CMmOQgPabF64wIBtTaGsoHA5Ha_sedLk0ZG9Ht5l5-cuzHVKz-Yi8G1kEix485dHqlp33Qp1h3GjV-ta3j5MJDsnstcW2GGmwEaLroQ_KxdUTPK-U1A4LVyextloAmB0tVqhHDDSELw8aD2Um2rvfq7nPxwdyKQa4929Nppi1Nmmb0rVfXA1j-b_cpw.01vhab4RlgygVMvU84aOIE-9wc6HXNRvqevfv5oA86I&dib_tag=se&keywords=afnan+supremacy+collector%27s+edition&qid=1793037142&s=beauty&sprefix=afna%2Cbeauty%2C195&sr=1-1"
 def main() -> None:
     conn = sqlite3.connect(DB_PATH_TRACKER)
     # Subtarea 6.1.3: el esquema se garantiza (idempotente) ANTES de leer o escribir.
