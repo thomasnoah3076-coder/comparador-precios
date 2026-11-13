@@ -2,7 +2,7 @@
 from abc import ABC, abstractmethod
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
-from database.schema import ya_se_consulto_hoy, obtener_ultimo_registro,buscar_id_producto, guardar_datos_producto
+from database.esquema import ya_se_consulto_hoy, obtener_ultimo_registro,buscar_id_producto, guardar_datos_producto
 from urllib.parse import urlparse
 
 

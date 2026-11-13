@@ -3,17 +3,18 @@ from datetime import date
 from pathlib import Path
 import sys
 from dataclasses import dataclass, fields
-import typing
-from services.currency import convertir_a_moneda_local
 
 if __package__ in (None, ""):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    raiz = Path(__file__).resolve().parent.parent
+    if str(raiz) not in sys.path:
+        sys.path.insert(0, str(raiz))
 
+from services.currency import convertir_a_moneda_local
 from config.settings import DB_PATH_TRACKER
 
 def init_sqlite_db():
     conexion = sqlite3.connect(DB_PATH_TRACKER) # 2do se conecta al módulo que previamente creamos (en este caso le pasamos la ruta donde se encuentra la base de datos).
-    cursor = conexion.cursor() # 3ro se crea un cursor. Que es un objeto que utilizaremos, para ejecutar las sentencias SQL y obtener resultados de la base de datos. 
+    cursor = conexion.cursor() # 3ro se crea un cursor. Que es un objeto que utilizaremos, para ejecutar las sentencias SQL y obtener resultados de la base de datos.
 
     cursor.executescript('''
         CREATE TABLE IF NOT EXISTS Productos (
@@ -227,26 +228,41 @@ def guardar_datos_producto(conn: sqlite3.Connection, asin: str, datos: dict, cat
         print(f"No se pudo guardar: {e}.")
         return False
 
-COLUMNAS_HISTORIAL = ("fecha", "precio_usd", "titulo")
+COLUMNAS_HISTORIAL_PRECIOS = ("fecha", "precio_usd", "titulo")
 
 def obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]:
-    """Devuelve el historial de precios de un producto, del más antiguo al más reciente.
-
-    Retorna una lista de diccionarios con las claves `fecha`, `precio_usd` y `titulo`;
-    `[]` si el producto no tiene registros, nunca `None`. Es de solo lectura: no
-    confirma, no revierte ni cierra la conexión recibida, y no modifica `row_factory`.
+    """
+    Retorna el historial de precios de un producto, del más antiguo al más reciente.
     """
     cursor = conn.execute(
-        "SELECT h.fecha, h.precio_usd, p.titulo "
-        "FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id "
-        "WHERE h.producto_id = ? "
-        "ORDER BY h.fecha ASC, h.id ASC",
+        '''SELECT h.fecha, h.precio_usd, p.titulo 
+        FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id
+        WHERE h.producto_id = ? 
+        ORDER BY h.fecha ASC, h.id ASC''',
         (producto_id,),
     )
 
     filas = cursor.fetchall()
 
-    if filas and len(filas[0]) != len(COLUMNAS_HISTORIAL):
-        raise ValueError("El SELECT y COLUMNAS_HISTORIAL no coinciden")
+    if filas and len(filas[0]) != len(COLUMNAS_HISTORIAL_PRECIOS):
+        raise ValueError("El SELECT y COLUMNAS_HISTORIAL_PRECIOS no coinciden")
 
-    return [dict(zip(COLUMNAS_HISTORIAL, fila)) for fila in filas]
+    return [dict(zip(COLUMNAS_HISTORIAL_PRECIOS, fila)) for fila in filas]
+
+COLUMNAS_PRODUCTOS_HISTORIAL = ("producto_id", "asin")
+
+def obtener_productos_con_historial(conn: sqlite3.Connection) -> list[dict]:
+    """
+    Retorna una lista de productos con su id de db y su código asin, de la más antigua al más reciente.
+    """
+    cursor = conn.execute(
+        '''SELECT DISTINCT p.id AS producto_id, p.asin 
+        FROM Productos p JOIN Historial_Precios h 
+        ON h.producto_id = p.id 
+        ORDER BY p.id ASC''')
+    filas = cursor.fetchall()
+
+    if filas and len(filas[0]) != len(COLUMNAS_PRODUCTOS_HISTORIAL):
+        raise ValueError("El SELECT y COLUMNAS_PRODUCTOS_HISTORIAL no coinciden")
+
+    return [dict(zip(COLUMNAS_PRODUCTOS_HISTORIAL, fila)) for fila in filas]

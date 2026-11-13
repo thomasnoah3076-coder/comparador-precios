@@ -3,7 +3,7 @@ import asyncio
 import sqlite3
 
 from config.settings import DB_PATH_TRACKER
-from database.schema import init_sqlite_db
+from database.esquema import init_sqlite_db
 from scrapers.AmazonScraper import AmazonScraper
 
 # Constantes editables del módulo (Subtarea 6.1.5).
