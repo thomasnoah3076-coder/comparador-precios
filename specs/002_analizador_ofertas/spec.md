@@ -30,7 +30,7 @@ El módulo **no escribe** en la base de datos, **no navega** (no invoca scrapers
 
 - **Componentes / Objetos:**
   - `services/analizador.py` (nuevo): dueño de la lógica de análisis. Importa `UMBRAL_CAIDA_PRECIO` desde `config.settings` (fuente única del umbral, sin constante local duplicada).
-  - `database/schema.py` (modificado): dos helpers nuevos de **lectura** (el dueño del esquema); ninguna tabla nueva, ningún cambio de esquema.
+  - `../../database/esquema.py` (modificado): dos helpers nuevos de **lectura** (el dueño del esquema); ninguna tabla nueva, ningún cambio de esquema.
   - `main.py` (sin cambios en este spec): la integración en el flujo principal se recibe en el plan al aprobarla.
 - **Métodos Principales:**
   - `database::obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]` — consulta del historial: `SELECT h.fecha, h.precio_usd, p.titulo FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id WHERE h.producto_id = ? ORDER BY h.fecha ASC, h.id ASC` y devuelve la lista de filas como dicts `{fecha, precio_usd, titulo}`. El desempate temporal `id ASC` hace determinista el "más reciente" (la fila de `id` máximo, última de la lista) cuando dos inserciones comparten `fecha` —la resolución de `TIMESTAMP` es de segundos—. El JOIN con `Productos` es la fuente del `titulo` del veredicto. Read-only, sin `commit`.
@@ -46,7 +46,7 @@ El módulo **no escribe** en la base de datos, **no navega** (no invoca scrapers
   2. `analizar_oferta` valida `conn`/`asin` → `buscar_id_producto` → `obtener_historial_precios` (filas `{fecha, precio_usd, titulo}`) → extrae los floats `[fila["precio_usd"] for fila in filas]` → separa la última fila (actual) del resto → `obtener_precio_referencia(precios_previos)` → valida `precio_referencia > 0` → `calcular_caida` → veredicto, con `titulo` tomado de la fila más reciente.
   3. Casos sin análisis posible, todos devuelven `None` con aviso claro, sin lanzar: `conn` nulo/cerrada, `asin` vacío/no-str, producto inexistente, historial vacío, historial con un solo registro (no hay contra qué comparar) y `precio_referencia <= 0` (precondición de `calcular_caida`: la división sería inválida).
   4. `analizar_productos` obtiene `obtener_productos_con_historial` y repite el flujo del paso 2 por cada `asin`, omitiendo con aviso los productos sin análisis posible.
-  5. Modo ejecutable: `python -m services.analizador <ASIN>` imprime el veredicto del producto; para permitir también la ejecución directa del archivo, incluir el arranque de ruta condicionado ya probado en `database/schema.py` (`if __package__ in (None, "")`).
+  5. Modo ejecutable: `python -m services.analizador <ASIN>` imprime el veredicto del producto; para permitir también la ejecución directa del archivo, incluir el arranque de ruta condicionado ya probado en `../../database/esquema.py` (`if __package__ in (None, "")`).
   6. Validación de entradas explícita al inicio (`isinstance`) y el checker no depende de que la BD o los SELECT silencien errores.
 
 ## 4. Criterios de Aceptación

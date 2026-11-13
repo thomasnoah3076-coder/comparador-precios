@@ -15,76 +15,76 @@ Flujo de comportamiento:
 - [x] 3. Comprobar que ningún módulo de `config/`, `database/`, `services/`, `scrapers/` ni `main.py` importa ni referencia el nombre viejo; el único consumidor nuevo será `services/analizador.py`.
 - [x] 4. No definir ninguna otra constante de umbral en el proyecto: `UMBRAL_CAIDA_PRECIO` es la única fuente de verdad y el analizador la importa sin copia local.
 
-## Tarea Principal 2: Helpers de lectura en `database/schema.py`
+## Tarea Principal 2: Helpers de lectura en `../../database/esquema.py`
 
 ### Subtarea 2.1: `obtener_historial_precios` — historial ascendente de un producto con su título
 Flujo de comportamiento:
-- [x] 1. Declarar `def obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]` en `database/schema.py`, junto a `buscar_id_producto`, con docstring en español y type hints (§1/§2 de la Constitución).
+- [x] 1. Declarar `def obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]` en `../../database/esquema.py`, junto a `buscar_id_producto`, con docstring en español y type hints (§1/§2 de la Constitución).
 - [x] 2. Ejecutar con `conn.execute` la sentencia `SELECT h.fecha, h.precio_usd, p.titulo FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id WHERE h.producto_id = ? ORDER BY h.fecha ASC, h.id ASC`, pasando `producto_id` como parámetro de la tupla.
-- [ ] 3. Leer todas las filas con `fetchall()` y convertir cada tupla a `dict` con `zip` de los nombres de columna declarados en el `SELECT` (`fecha`, `precio_usd`, `titulo`), produciendo objetos `FilaHistorial`.
-- [ ] 4. Retornar la lista en orden ascendente con retorno explícito en todas las ramas: `[]` cuando el producto no tiene filas, nunca `None`.
-- [ ] 5. No ejecutar `commit`, `rollback` ni `close` sobre la conexión del llamador y no asignar `conn.row_factory`: la conexión es compartida con `main.py` y con las funciones de escritura.
-- [ ] 6. No ejecutar sentencias de escritura: la función es de solo lectura y repetirla no altera ninguna tabla.
-- [ ] 7. Reubicar en `database/schema.py` el bloque `if __package__ in (None, "")` por encima de `from services.currency import convertir_a_moneda_local`, el único import absoluto del proyecto que hoy lo precede, conservando la inserción idempotente `if str(raiz) not in sys.path`: en su posición actual el import falla antes de que el guard se ejecute y `python database/schema.py` no arranca.
+- [x] 3. Leer todas las filas con `fetchall()` y convertir cada tupla a `dict` con `zip` de los nombres de columna declarados en el `SELECT` (`fecha`, `precio_usd`, `titulo`), produciendo objetos `FilaHistorial`.
+- [x] 4. Retornar la lista en orden ascendente con retorno explícito en todas las ramas: `[]` cuando el producto no tiene filas, nunca `None`.
+- [x] 5. No ejecutar `commit`, `rollback` ni `close` sobre la conexión del llamador y no asignar `conn.row_factory`: la conexión es compartida con `main.py` y con las funciones de escritura.
+- [x] 6. No ejecutar sentencias de escritura: la función es de solo lectura y repetirla no altera ninguna tabla.
+- [x] 7. Reubicar en `../../database/esquema.py` el bloque `if __package__ in (None, "")` por encima de `from services.currency import convertir_a_moneda_local`, el único import absoluto del proyecto que hoy lo precede, conservando la inserción idempotente `if str(raiz) not in sys.path`: en su posición actual el import falla antes de que el guard se ejecute y `python database/schema.py` no arranca.
 
 ### Subtarea 2.2: `obtener_productos_con_historial` — listado de productos analizables
 Flujo de comportamiento:
-- [ ]1. Declarar `def obtener_productos_con_historial(conn: sqlite3.Connection) -> list[dict]` en `database/schema.py`, con docstring en español y type hints.
-- [ ]2. Ejecutar `SELECT DISTINCT p.id AS producto_id, p.asin FROM Productos p JOIN Historial_Precios h ON h.producto_id = p.id ORDER BY p.id ASC` sin parámetros.
-- [ ]3. Convertir las tuplas con `fetchall()` y `zip` de los nombres de columna declarados (`producto_id`, `asin`), produciendo objetos `ProductoConHistorial`.
-- [ ]4. Aceptar `asin` en `None` sin filtrar en el helper: `Productos.asin` es `UNIQUE` pero no `NOT NULL`, y la guarda del ASIN pertenece a `_analizar_por_id`.
-- [ ]5. Retornar `[]` cuando ningún producto tiene historial, con retorno explícito, y no ejecutar `commit`, `rollback` ni `close` sobre la conexión del llamador.
-- [ ]6. No tocar `conn.row_factory` ni el esquema: la consulta es de solo lectura.
+- [x] 1. Declarar `def obtener_productos_con_historial(conn: sqlite3.Connection) -> list[dict]` en `../../database/esquema.py`, con docstring en español y type hints.
+- [x] 2. Ejecutar `SELECT DISTINCT p.id AS producto_id, p.asin FROM Productos p JOIN Historial_Precios h ON h.producto_id = p.id ORDER BY p.id ASC` sin parámetros.
+- [x] 3. Convertir las tuplas con `fetchall()` y `zip` de los nombres de columna declarados (`producto_id`, `asin`), produciendo objetos `ProductoConHistorial`.
+- [x] 4. Aceptar `asin` en `None` sin filtrar en el helper: `Productos.asin` es `UNIQUE` pero no `NOT NULL`, y la guarda del ASIN pertenece a `_analizar_por_id`.
+- [x] 5. Retornar `[]` cuando ningún producto tiene historial, con retorno explícito, y no ejecutar `commit`, `rollback` ni `close` sobre la conexión del llamador.
+- [x] 6. No tocar `conn.row_factory` ni el esquema: la consulta es de solo lectura.
 
 ### Subtarea 2.3: `obtener_ultimo_registro` — desempate temporal alineado al analizador
 Flujo de comportamiento:
-- [ ]1. Localizar en `obtener_ultimo_registro` la subconsulta que sirve el precio: `SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1`.
-- [ ]2. Añadir el desempate `id DESC` a esa subconsulta, quedando `ORDER BY fecha DESC, id DESC LIMIT 1`, el mismo criterio de `obtener_historial_precios` leído en sentido inverso cuando dos filas comparten `fecha`.
-- [ ]3. No modificar las subconsultas de `Metricas_Vendedor` (`total_ventas` y `calificacion_promedio`), ni las columnas servidas, ni el contrato de siete claves con moneda `"USD"`.
-- [ ]4. No alterar las funciones de escritura (`obtener_o_crear_producto`, `insertar_historial_precio`, `insertar_metricas_vendedor`, `guardar_datos_producto`) ni el esquema de las tres tablas.
+- [ ] 1. Localizar en `obtener_ultimo_registro` la subconsulta que sirve el precio: `SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1`.
+- [ ] 2. Añadir el desempate `id DESC` a esa subconsulta, quedando `ORDER BY fecha DESC, id DESC LIMIT 1`, el mismo criterio de `obtener_historial_precios` leído en sentido inverso cuando dos filas comparten `fecha`.
+- [ ] 3. No modificar las subconsultas de `Metricas_Vendedor` (`total_ventas` y `calificacion_promedio`), ni las columnas servidas, ni el contrato de siete claves con moneda `"USD"`.
+- [ ] 4. No alterar las funciones de escritura (`obtener_o_crear_producto`, `insertar_historial_precio`, `insertar_metricas_vendedor`, `guardar_datos_producto`) ni el esquema de las tres tablas.
 
 ## Tarea Principal 3: Funciones puras del analizador
 
 ### Subtarea 3.1: encabezado de `services/analizador.py` — imports y arranque de ruta condicionado
 Flujo de comportamiento:
-- [ ]1. Crear `services/analizador.py` e importar primero solo la stdlib: `sqlite3`, `argparse`, `sys` y `Path` de `pathlib`; los hints de las firmas usan los genéricos nativos (`list[float]`, `float | None`, `dict | None`, `list[dict]`) y no requieren `import typing`. Las librerías del módulo son exactamente esas cuatro: el archivo no contiene `import typing` ni ninguna referencia a `typing.`, de modo que la mención de `typing` en `spec.md` §3 queda sustituida por esta lista.
-- [ ]2. Colocar inmediatamente después, y **antes** de cualquier import absoluto del proyecto, el arranque de ruta condicionado: `if __package__ in (None, ""):` con `raiz = Path(__file__).resolve().parent.parent` e inserción idempotente `if str(raiz) not in sys.path: sys.path.insert(0, str(raiz))`.
-- [ ]3. Importar después del guard los módulos del proyecto: `from config import settings`, `from config.settings import UMBRAL_CAIDA_PRECIO` y `from database.schema import buscar_id_producto, obtener_historial_precios, obtener_productos_con_historial`.
-- [ ]4. No definir ninguna constante de umbral local, ni importar Playwright, `requests` o `services.currency`; `services.currency` se carga solo de forma transitiva desde `database.schema` y el analizador no invoca la conversión de moneda.
-- [ ]5. Declarar las firmas con los genéricos nativos explícitos en todas las ramas de retorno (`list[float]`, `float | None`, `dict | None`, `list[dict]`), sin `import typing`, según §2 de la Constitución.
+- [ ] 1. Crear `services/analizador.py` e importar primero solo la stdlib: `sqlite3`, `argparse`, `sys` y `Path` de `pathlib`; los hints de las firmas usan los genéricos nativos (`list[float]`, `float | None`, `dict | None`, `list[dict]`) y no requieren `import typing`. Las librerías del módulo son exactamente esas cuatro: el archivo no contiene `import typing` ni ninguna referencia a `typing.`, de modo que la mención de `typing` en `spec.md` §3 queda sustituida por esta lista.
+- [ ] 2. Colocar inmediatamente después, y **antes** de cualquier import absoluto del proyecto, el arranque de ruta condicionado: `if __package__ in (None, ""):` con `raiz = Path(__file__).resolve().parent.parent` e inserción idempotente `if str(raiz) not in sys.path: sys.path.insert(0, str(raiz))`.
+- [ ] 3. Importar después del guard los módulos del proyecto: `from config import settings`, `from config.settings import UMBRAL_CAIDA_PRECIO` y `from database.schema import buscar_id_producto, obtener_historial_precios, obtener_productos_con_historial`.
+- [ ] 4. No definir ninguna constante de umbral local, ni importar Playwright, `requests` o `services.currency`; `services.currency` se carga solo de forma transitiva desde `database.schema` y el analizador no invoca la conversión de moneda.
+- [ ] 5. Declarar las firmas con los genéricos nativos explícitos en todas las ramas de retorno (`list[float]`, `float | None`, `dict | None`, `list[dict]`), sin `import typing`, según §2 de la Constitución.
 
 ### Subtarea 3.2: `obtener_precio_referencia` — mínimo del historial previo
 Flujo de comportamiento:
-- [ ]1. Declarar `def obtener_precio_referencia(precios: list[float]) -> float | None` como función pura: sin conexión, sin archivos, sin `print` y sin leer `UMBRAL_CAIDA_PRECIO`.
-- [ ]2. Retornar temprano `None` cuando `precios` esté vacío, porque no existe historial previo contra el que comparar.
-- [ ]3. Retornar `min(precios)` en la rama con datos, con tipo explícito `float | None` en ambos caminos.
-- [ ]4. No mutar la lista recibida: el llamador reutiliza las filas del historial para el precio actual.
+- [ ] 1. Declarar `def obtener_precio_referencia(precios: list[float]) -> float | None` como función pura: sin conexión, sin archivos, sin `print` y sin leer `UMBRAL_CAIDA_PRECIO`.
+- [ ] 2. Retornar temprano `None` cuando `precios` esté vacío, porque no existe historial previo contra el que comparar.
+- [ ] 3. Retornar `min(precios)` en la rama con datos, con tipo explícito `float | None` en ambos caminos.
+- [ ] 4. No mutar la lista recibida: el llamador reutiliza las filas del historial para el precio actual.
 
 ### Subtarea 3.3: `calcular_caida` — caída porcentual con suelo cero
 Flujo de comportamiento:
-- [ ]1. Declarar `def calcular_caida(precio_referencia: float, precio_actual: float) -> float` como función pura, sin `print` y sin consultar el umbral: la decisión de oferta vive en `_analizar_por_id`.
-- [ ]2. Documentar la precondición `precio_referencia > 0`: la garantiza `_analizar_por_id` antes de llamarla para evitar la división inválida, y la función no captura `ZeroDivisionError`.
-- [ ]3. Calcular `caida = (precio_referencia - precio_actual) / precio_referencia`, que marca positivo cuando el precio actual es menor que la referencia.
-- [ ]4. Retornar `max(caida, 0.0)` para que el resultado sea no-negativo cuando el precio actual iguala o supera la referencia; el veredicto es entonces "no es oferta", nunca una caída negativa.
+- [ ] 1. Declarar `def calcular_caida(precio_referencia: float, precio_actual: float) -> float` como función pura, sin `print` y sin consultar el umbral: la decisión de oferta vive en `_analizar_por_id`.
+- [ ] 2. Documentar la precondición `precio_referencia > 0`: la garantiza `_analizar_por_id` antes de llamarla para evitar la división inválida, y la función no captura `ZeroDivisionError`.
+- [ ] . Calcular `caida = (precio_referencia - precio_actual) / precio_referencia`, que marca positivo cuando el precio actual es menor que la referencia.
+- [ ] 4. Retornar `max(caida, 0.0)` para que el resultado sea no-negativo cuando el precio actual iguala o supera la referencia; el veredicto es entonces "no es oferta", nunca una caída negativa.
 
 ## Tarea Principal 4: Veredicto por producto
 
 ### Subtarea 4.1: `_analizar_por_id` — única constructora del veredicto
 Flujo de comportamiento:
-- [ ]1. Declarar `def _analizar_por_id(conn: sqlite3.Connection, producto_id: int, asin: str | None) -> dict | None`; la firma admite `None` porque el batch le entrega `Productos.asin`, que no es `NOT NULL`, y el `producto_id` llega ya resuelto.
-- [ ]2. Primera guarda: si `asin` no es `str` o queda vacío tras `strip()`, imprimir el aviso "Sin análisis: ASIN inválido." y retornar `None`, antes de leer el historial.
-- [ ]3. Leer `filas = obtener_historial_precios(conn, producto_id)`, usando el nombre importado en este módulo, y mantener el orden ascendente que devuelve el helper.
-- [ ]4. Segunda guarda: si `len(filas) == 0`, imprimir el aviso "Sin análisis: historial vacío." y retornar `None`.
-- [ ]5. Tercera guarda: si `len(filas) == 1`, imprimir el aviso "Sin análisis: el historial tiene un solo registro." y retornar `None`, porque no hay contra qué comparar y un `es_oferta: False` confundiría "no es oferta" con "sin datos".
-- [ ]6. Separar el historial: `fila_actual = filas[-1]` (la más reciente por `fecha ASC, id ASC`), `precio_actual = fila_actual["precio_usd"]` y `precios_previos = [fila["precio_usd"] for fila in filas[:-1]]`.
-- [ ]7. Calcular `precio_referencia = obtener_precio_referencia(precios_previos)`.
-- [ ]8. Cuarta guarda, antes de cualquier comparación numérica: si `precio_referencia is None`, imprimir el aviso correspondiente y retornar `None`, porque `None > 0` lanza `TypeError` en Python 3.
-- [ ]9. Quinta guarda: si `precio_referencia <= 0`, imprimir el aviso de referencia no positiva y retornar `None`, evitando la división inválida de `calcular_caida`.
-- [ ]10. Sexta guarda, independiente de la anterior: si `precio_actual is None` o `precio_actual <= 0`, imprimir el aviso de precio actual no positivo y retornar `None`, porque un `0` produciría una caída del `100 %` y un falso `es_oferta: True`.
-- [ ]11. Calcular `caida_porcentual = calcular_caida(precio_referencia, precio_actual)` con la referencia ya validada como positiva.
-- [ ]12. Construir y retornar el `Veredicto` con exactamente siete claves: `asin` (el `str` ya validado), `titulo` (de `fila_actual["titulo"]`, `str | None`), `precio_referencia_usd` (`float`), `precio_actual_usd` (`float`), `caida_porcentual` (`float`), `es_oferta` (`caida_porcentual >= UMBRAL_CAIDA_PRECIO`, comparación `>=`) y `moneda` (`"USD"` fijo).
-- [ ]13. Ser la única función que arma el diccionario del veredicto: ningún otro camino lo reconstruye ni renombra claves.
-- [ ]14. No escribir, no hacer `commit`, `rollback` ni `close`, y no capturar las excepciones de SQLite: las degrada el llamador.
+- [ ] 1. Declarar `def _analizar_por_id(conn: sqlite3.Connection, producto_id: int, asin: str | None) -> dict | None`; la firma admite `None` porque el batch le entrega `Productos.asin`, que no es `NOT NULL`, y el `producto_id` llega ya resuelto.
+- [ ] 2. Primera guarda: si `asin` no es `str` o queda vacío tras `strip()`, imprimir el aviso "Sin análisis: ASIN inválido." y retornar `None`, antes de leer el historial.
+- [ ] 3. Leer `filas = obtener_historial_precios(conn, producto_id)`, usando el nombre importado en este módulo, y mantener el orden ascendente que devuelve el helper.
+- [ ] 4. Segunda guarda: si `len(filas) == 0`, imprimir el aviso "Sin análisis: historial vacío." y retornar `None`.
+- [ ] 5. Tercera guarda: si `len(filas) == 1`, imprimir el aviso "Sin análisis: el historial tiene un solo registro." y retornar `None`, porque no hay contra qué comparar y un `es_oferta: False` confundiría "no es oferta" con "sin datos".
+- [ ] 6. Separar el historial: `fila_actual = filas[-1]` (la más reciente por `fecha ASC, id ASC`), `precio_actual = fila_actual["precio_usd"]` y `precios_previos = [fila["precio_usd"] for fila in filas[:-1]]`.
+- [ ] 7. Calcular `precio_referencia = obtener_precio_referencia(precios_previos)`.
+- [ ] 8. Cuarta guarda, antes de cualquier comparación numérica: si `precio_referencia is None`, imprimir el aviso correspondiente y retornar `None`, porque `None > 0` lanza `TypeError` en Python 3.
+- [ ] 9. Quinta guarda: si `precio_referencia <= 0`, imprimir el aviso de referencia no positiva y retornar `None`, evitando la división inválida de `calcular_caida`.
+- [ ] 10. Sexta guarda, independiente de la anterior: si `precio_actual is None` o `precio_actual <= 0`, imprimir el aviso de precio actual no positivo y retornar `None`, porque un `0` produciría una caída del `100 %` y un falso `es_oferta: True`.
+- [ ] 11. Calcular `caida_porcentual = calcular_caida(precio_referencia, precio_actual)` con la referencia ya validada como positiva.
+- [ ] 12. Construir y retornar el `Veredicto` con exactamente siete claves: `asin` (el `str` ya validado), `titulo` (de `fila_actual["titulo"]`, `str | None`), `precio_referencia_usd` (`float`), `precio_actual_usd` (`float`), `caida_porcentual` (`float`), `es_oferta` (`caida_porcentual >= UMBRAL_CAIDA_PRECIO`, comparación `>=`) y `moneda` (`"USD"` fijo).
+- [ ] 13. Ser la única función que arma el diccionario del veredicto: ningún otro camino lo reconstruye ni renombra claves.
+- [ ] 14. No escribir, no hacer `commit`, `rollback` ni `close`, y no capturar las excepciones de SQLite: las degrada el llamador.
 
 ### Subtarea 4.2: `analizar_oferta` — fachada de análisis por ASIN
 Flujo de comportamiento:
@@ -132,7 +132,7 @@ Flujo de comportamiento:
 
 ### Subtarea 7.1: entorno temporal, firmas del módulo y umbral único
 Flujo de comportamiento:
-- [ ]1. Crear el archivo temporal `test_tmp_analizador_ofertas.py`, con nombre sin `/` ni espacios (§6.4 de `AGENTS.md`), y una fixture que parchee **ambos** nombres de la ruta antes de inicializar: `monkeypatch.setattr(config.settings, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))` y `monkeypatch.setattr(database.schema, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))`, porque `schema.py` ata la ruta por valor y `init_sqlite_db()` usa ese global; en la misma fixture aislar `services.currency`, que ata por valor `DEFAULT_CURRENCY` y `RUTA_TASAS_CAMBIO`, con `monkeypatch.setattr(services.currency, "DEFAULT_CURRENCY", None)` y `monkeypatch.setattr(services.currency, "RUTA_TASAS_CAMBIO", str(tmp_path / "tasas_cambio.json"))`, para que ninguna ruta de conversión alcance la red ni el JSON real de `database/`.
+- [ ]1. Crear el archivo temporal `test_tmp_analizador_ofertas.py`, con nombre sin `/` ni espacios (§6.4 de `AGENTS.md`), y una fixture que parchee **ambos** nombres de la ruta antes de inicializar: `monkeypatch.setattr(config.settings, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))` y `monkeypatch.setattr(database.schema, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))`, porque `esquema.py` ata la ruta por valor y `init_sqlite_db()` usa ese global; en la misma fixture aislar `services.currency`, que ata por valor `DEFAULT_CURRENCY` y `RUTA_TASAS_CAMBIO`, con `monkeypatch.setattr(services.currency, "DEFAULT_CURRENCY", None)` y `monkeypatch.setattr(services.currency, "RUTA_TASAS_CAMBIO", str(tmp_path / "tasas_cambio.json"))`, para que ninguna ruta de conversión alcance la red ni el JSON real de `database/`.
 - [ ]2. Inicializar la BD temporal con `init_sqlite_db()` y abrir la conexión de prueba a `tmp_path`, sin tocar `database/tracker.db`; como `obtener_o_crear_producto` e `insertar_historial_precio` no confirman la transacción, toda siembra de la batería termina con `conn.commit()` para que una conexión nueva (el `main()` de la Subtarea 7.8 y los subprocesos de la Subtarea 7.9) vea los datos.
 - [ ]3. Importar `services.analizador` y comprobar con `inspect.signature` la existencia y las firmas de `analizar_oferta`, `analizar_productos`, `obtener_precio_referencia`, `calcular_caida` y `_analizar_por_id`, y que cada `return` respeta el tipo declarado, incluidos `None` y `[]`.
 - [ ]4. Comprobar `config.settings.UMBRAL_CAIDA_PRECIO == 0.15`, que `PRICE_DROP_THRESHOLD` ya no existe en el módulo y que `services.analizador` no define una constante de umbral propia.
@@ -196,7 +196,7 @@ Flujo de comportamiento:
 
 ### Subtarea 7.10: `py_compile` y cierre de la batería
 Flujo de comportamiento:
-- [ ]1. Ejecutar `py_compile` sobre `config/settings.py`, `database/schema.py` y `services/analizador.py`.
+- [ ]1. Ejecutar `py_compile` sobre `config/settings.py`, `../../database/esquema.py` y `services/analizador.py`.
 - [ ]2. Ejecutar toda la batería con `.venv/bin/python -m pytest`, sin acceso a red, sin escribir archivos del proyecto y sin tocar `database/tracker.db`.
 - [ ]3. Si todas las pruebas pasan, eliminar el archivo temporal, `__pycache__` y `.pytest_cache` conforme §6.4 de `AGENTS.md`; si alguna falla, conservarlo todo con las trazas y reportar según §6.2.
 
