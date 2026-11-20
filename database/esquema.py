@@ -9,7 +9,7 @@ if __package__ in (None, ""):
     if str(raiz) not in sys.path:
         sys.path.insert(0, str(raiz))
 
-from services.currency import convertir_a_moneda_local
+from services.divisas import convertir_a_moneda_local
 from config.settings import DB_PATH_TRACKER
 
 def init_sqlite_db():
