@@ -1,64 +1,72 @@
-# Especificación: Analizador de Ofertas (Roadmap paso 4)
-
-**Fecha:** Octubre 2026
-**Origen:** Roadmap paso 4 de `MEMORY.md` §5 — *"Desarrollar Analizador de Ofertas: comparar el precio actual guardado en la BD con el historial para detectar caídas de precio"*.
-**Estado:** Especificación inicial (pendiente de `plan.md` y de aprobación del Director).
-
----
+z# Especificación: Analizador de Ofertas
 
 ## 1. Objetivo (El Qué)
 
-Crear un módulo de **solo lectura** que evalúe si el precio más reciente de un producto registrado en `Historial_Precios` constituye una oferta, comparándolo contra su historial de precios y devolviendo un veredicto estructurado:
+Implementar un módulo de **solo lectura** que determine si el precio más reciente de un producto registrado en `Historial_Precios` constituye una oferta, comparándolo con el mínimo de su historial previo y devolviendo un veredicto estructurado:
 
-1. Leer del historial del producto los precios en USD (columna `precio_usd`, la única moneda estable garantizada en lectura) en orden cronológico.
-2. Tomar el registro más reciente como **precio actual** y el **mínimo del historial anterior a él** como precio de referencia.
-3. Calcular la caída porcentual: `caida = (precio_referencia − precio_actual) / precio_referencia`. Un valor positivo indica que el precio actual es menor que toda la historia previa del producto.
-4. Marcar el veredicto como oferta cuando `caida >= UMBRAL_CAIDA_PRECIO`. La constante vive en `config/settings.py` (renombrada allí desde el `PRICE_DROP_THRESHOLD` nominal del roadmap, que hoy existe sin uso; nombre en español por §1 de la Constitución) y es la **única fuente de verdad**: `services/analizador.py` la importa y no define copia local.
+1. Leer el historial del producto en orden `fecha ASC, id ASC` mediante `obtener_historial_precios` de `database/esquema.py`.
+2. Tomar la última fila de esa lista como **precio actual** (`precio_usd`) y el **mínimo de las filas anteriores** como precio de referencia, cálculo delegado en `obtener_precio_referencia`.
+3. Calcular la caída porcentual `caida = max((precio_referencia − precio_actual) / precio_referencia, 0.0)`.
+4. Marcar `es_oferta` cuando `caida >= UMBRAL_CAIDA_PRECIO`, umbral único importado de `config/settings.py`.
 
-El módulo **no escribe** en la base de datos, **no navega** (no invoca scrapers ni Playwright) y **no notifica** (Telegram es el paso 5).
+El análisis se hace exclusivamente sobre `precio_usd`, columna que es **USD por construcción**: el analizador asume que toda fila que compara está expresada en USD y las filas con precio en otra moneda quedan fuera de su alcance. El módulo no escribe en la base de datos y no navega. Quedan fuera de alcance las notificaciones, la automatización programada, el scraping de precios nuevos y el enganche en `main.py`.
 
 ## 2. Motivación (El Por Qué)
 
-- La persistencia (spec 001) está completa y verificada: cada scrape deja una fila nueva en `Historial_Precios`. Ese historial acumulado es hoy **dato muerto**: nada lo consume. El analizador es el primer consumidor y convierte el historial en valor detectable.
-- Es el cimiento directo del paso 5 del roadmap: el resultado estructurado (`es_oferta`, `caida_porcentual`, precios de referencia) es exactamente lo que el consumidor futuro de notificaciones Telegram necesitará para formatear y enviar, sin tocarle ninguna lógica.
-- Detectar la caída contra el **mínimo histórico** (no contra el registro inmediatamente anterior) captura el caso real de compra: "hoy está más barato que en cualquier momento previo registrado", evitando falsos positivos cuando ayer subió y hoy volvió.
-- Comparar en USD (`precio_usd`) evita comparar precios etiquetados en monedas distintas: cuando la conversión a COP no está disponible, la fila del historial cae en *fallback* honesto USD y `moneda_local` puede variar entre filas; el precio en USD no lo hace.
+El historial que deja cada scrape está hoy sin consumidor; este módulo lo convierte en señal de compra y entrega el veredicto que el paso siguiente necesita sin lógica adicional.
 
-**Fuera de alcance:** notificaciones Telegram (paso 5, mencionado aquí solo como consumidor futuro, sin implementar), automatización con scheduler, scraping de precios nuevos y escrituras en la BD.
+- Detección automática de caídas de precio reales.
+- Reutilización del historial ya persistido y verificado.
+- Contrato de salida estable para el futuro notificador.
+- Comparaciones consistentes en una sola moneda.
 
 ## 3. Propuesta Técnica
 
 - **Componentes / Objetos:**
-  - `services/analizador.py` (nuevo): dueño de la lógica de análisis. Importa `UMBRAL_CAIDA_PRECIO` desde `config.settings` (fuente única del umbral, sin constante local duplicada).
-  - `../../database/esquema.py` (modificado): dos helpers nuevos de **lectura** (el dueño del esquema); ninguna tabla nueva, ningún cambio de esquema.
-  - `main.py` (sin cambios en este spec): la integración en el flujo principal se recibe en el plan al aprobarla.
+  - `config/settings.py`: `UMBRAL_CAIDA_PRECIO` como umbral único, importado por el analizador sin copia local, y `DB_PATH_TRACKER` como ruta de la base, leída como atributo del módulo en `main`.
+  - `database/esquema.py`: helpers de lectura `obtener_historial_precios(conn, producto_id)`, `obtener_productos_con_historial(conn)` y `buscar_id_producto(conn, asin)`; sin tablas nuevas ni cambios de esquema.
+  - `database/esquema.py`: `obtener_ultimo_registro` alineado a `ORDER BY fecha DESC, id DESC LIMIT 1`, sin cambio de contrato, para que su "último registro" coincida con el precio actual del analizador cuando dos filas comparten `fecha`.
+  - Arranque de ruta condicionado en `services/analizador.py`: con `if __package__ in (None, "")` inserta la raíz del proyecto en `sys.path` antes de los imports absolutos del proyecto, usando `sys` y `pathlib`.
+  - `services/analizador.py` (nuevo): funciones puras, constructora privada del veredicto y orquestadoras.
+  - `Veredicto` (`dict` de 7 claves fijas): `asin`, `titulo`, `precio_referencia_usd`, `precio_actual_usd`, `caida_porcentual`, `es_oferta`, `moneda` (siempre `"USD"`).
+  - Import literal desde el módulo de esquema: `from database.esquema import buscar_id_producto, obtener_historial_precios, obtener_productos_con_historial`.
 - **Métodos Principales:**
-  - `database::obtener_historial_precios(conn: sqlite3.Connection, producto_id: int) -> list[dict]` — consulta del historial: `SELECT h.fecha, h.precio_usd, p.titulo FROM Historial_Precios h JOIN Productos p ON p.id = h.producto_id WHERE h.producto_id = ? ORDER BY h.fecha ASC, h.id ASC` y devuelve la lista de filas como dicts `{fecha, precio_usd, titulo}`. El desempate temporal `id ASC` hace determinista el "más reciente" (la fila de `id` máximo, última de la lista) cuando dos inserciones comparten `fecha` —la resolución de `TIMESTAMP` es de segundos—. El JOIN con `Productos` es la fuente del `titulo` del veredicto. Read-only, sin `commit`.
-  - `database::obtener_productos_con_historial(conn: sqlite3.Connection) -> list[dict]` — segunda consulta de lectura nueva: `SELECT DISTINCT p.id AS producto_id, p.asin FROM Productos p JOIN Historial_Precios h ON h.producto_id = p.id ORDER BY p.id ASC`; devuelve dicts `{producto_id, asin}` con los productos que tienen al menos una fila de historial. Read-only, sin `commit`.
-  - `services/analizador::obtener_precio_referencia(precios: list[float]) -> float | None` — pura: devuelve el mínimo de la lista; `None` si la lista es vacía (retorno temprano, tipo explícito en todas las ramas).
-  - `services/analizador::calcular_caida(precio_referencia: float, precio_actual: float) -> float` — pura, devuelve la caída porcentual; garantizada no-negativa (si `precio_actual >= precio_referencia`, devuelve `0.0`). Precondición `precio_referencia > 0`, garantizada por la fachada antes de llamarla (evita la división inválida).
-  - `services/analizador::analizar_oferta(conn: sqlite3.Connection, asin: str) -> dict | None` — fachada del módulo. Resuelve `asin → producto_id` con `buscar_id_producto` (el identificador de entrada es siempre ASIN, nunca el id entero), obtiene el historial con `obtener_historial_precios`, extrae los precios `[fila["precio_usd"] for fila in filas]`, valida precondiciones y retorna el veredicto o `None` con aviso por consola. Jamás propaga excepciones hacia el llamador (degradación elegante, §4 de la Constitución).
-  - Contrato de salida de `analizar_oferta` (dict de claves fijas): `asin` (str), `titulo` (str | None, tomado de la fila más reciente que devuelve `obtener_historial_precios` vía su JOIN con `Productos`), `precio_referencia_usd` (float), `precio_actual_usd` (float), `caida_porcentual` (float), `es_oferta` (bool), `moneda` (str, siempre `"USD"`). Un único conjunto de claves (régimen de la 4ª ronda: no duplicar caminos con claves divergentes).
-  - `services/analizador::analizar_productos(conn: sqlite3.Connection) -> list[dict]` — obtiene el listado con `obtener_productos_con_historial` y aplica `analizar_oferta` a cada `asin`. Devuelve **solo los veredictos producidos** (la lista no contiene `None`): los productos sin análisis posible se omiten con aviso por consola. Un error en un producto no detiene la evaluación del siguiente (§4 de la Constitución).
-- **Librerías / Dependencias:** solo stdlib (`sqlite3`, `argparse` para el modo script, `typing`). Sin dependencias nuevas.
+  - `obtener_historial_precios` — historial ascendente del producto con filas `{fecha, precio_usd, titulo}`.
+  - `obtener_productos_con_historial` — productos con al menos una fila de historial, como `{producto_id, asin}`.
+  - `obtener_precio_referencia(precios: list[float]) -> float | None` — pura; recibe la lista **cruda** de precios previos, descarta los elementos no numéricos o `<= 0` antes del `min` y devuelve `None` únicamente cuando el conjunto válido queda vacío. Es el **único punto de filtrado** de precios.
+  - `calcular_caida` — pura; caída porcentual con suelo `0.0`, precondición `precio_referencia > 0` y comparación `>=` cruda contra el umbral, sin tolerancia.
+  - `_analizar_por_id(conn, producto_id, asin)` — privada; única constructora del veredicto, recibe el `producto_id` ya resuelto.
+  - `analizar_oferta(conn, asin)` — resuelve el ASIN con `buscar_id_producto` y delega en `_analizar_por_id`.
+  - `analizar_productos(conn)` — recorre el listado y delega en `_analizar_por_id` con el `producto_id` y el `asin` devueltos.
+  - `main` — modo script de solo lectura para `python -m services.analizador <ASIN>` y `python services/analizador.py <ASIN>`.
+- **Guardas, en orden por función:**
+  - `analizar_oferta`: `conn` inválida → `asin` no `str` o vacío → producto inexistente (`buscar_id_producto` devuelve `None`).
+  - `analizar_productos`: `conn` inválida → descarta con aviso los `asin` nulos.
+  - `_analizar_por_id`: `asin` no `str` o vacío → historial vacío → un solo registro → conjunto previo sin precios válidos (referencia `None`) → precio actual no positivo (`<= 0`); la comprobación de `None` se mantiene solo como defensa declarada de la función, porque `Historial_Precios.precio_usd` es `REAL NOT NULL` y ese caso no se siembra por base de datos.
+- **Librerías / Dependencias:** `sqlite3`, `argparse`, `sys`, `pathlib` (todas stdlib); sin dependencias nuevas. El analizador no invoca `services.currency`: ese módulo solo se carga de forma transitiva al importar `database/esquema.py`, y nunca se llama a la conversión.
 - **Flujo de Datos:**
-  1. El llamador (`main.py` tras una consulta exitosa, o el modo script) abre la conexión, llama `analizar_oferta(conn, asin)` y recibe el veredicto o `None`.
-  2. `analizar_oferta` valida `conn`/`asin` → `buscar_id_producto` → `obtener_historial_precios` (filas `{fecha, precio_usd, titulo}`) → extrae los floats `[fila["precio_usd"] for fila in filas]` → separa la última fila (actual) del resto → `obtener_precio_referencia(precios_previos)` → valida `precio_referencia > 0` → `calcular_caida` → veredicto, con `titulo` tomado de la fila más reciente.
-  3. Casos sin análisis posible, todos devuelven `None` con aviso claro, sin lanzar: `conn` nulo/cerrada, `asin` vacío/no-str, producto inexistente, historial vacío, historial con un solo registro (no hay contra qué comparar) y `precio_referencia <= 0` (precondición de `calcular_caida`: la división sería inválida).
-  4. `analizar_productos` obtiene `obtener_productos_con_historial` y repite el flujo del paso 2 por cada `asin`, omitiendo con aviso los productos sin análisis posible.
-  5. Modo ejecutable: `python -m services.analizador <ASIN>` imprime el veredicto del producto; para permitir también la ejecución directa del archivo, incluir el arranque de ruta condicionado ya probado en `../../database/esquema.py` (`if __package__ in (None, "")`).
-  6. Validación de entradas explícita al inicio (`isinstance`) y el checker no depende de que la BD o los SELECT silencien errores.
+  ```
+  ASIN --> buscar_id_producto (solo fachada individual) ---+
+  listado --> obtener_productos_con_historial ------------+--> _analizar_por_id
+  _analizar_por_id --> obtener_historial_precios --> ultima fila = precio actual
+  filas anteriores --> precios_previos (crudos) --> obtener_precio_referencia
+  obtener_precio_referencia --> minimo valido filtrado, o None si no hay precios validos
+  guardas (historial vacio, un solo registro, referencia None, actual no positivo) --> None con aviso
+  calcular_caida(referencia, actual) --> Veredicto (es_oferta = caida >= UMBRAL_CAIDA_PRECIO)
+  ```
 
 ## 4. Criterios de Aceptación
 
-- Existe `services/analizador.py` con `analizar_oferta`, `analizar_productos`, `obtener_precio_referencia` y `calcular_caida`, todos con tipado explícito y nombres en español (§1/§2 de la Constitución); el umbral se consume importando `UMBRAL_CAIDA_PRECIO` desde `config.settings`, sin constante local duplicada.
-- `config/settings.py` exporta `UMBRAL_CAIDA_PRECIO = 0.15` (renombre de `PRICE_DROP_THRESHOLD`, que no tenía otros usos que actualizar).
-- Con un historial de ≥ 2 registros en USD donde el más reciente cae ≥ 15 % respecto al mínimo previo, `analizar_oferta` devuelve un dict con `es_oferta: True`, `caida_porcentual >= 0.15` y `titulo` no vacío (proveniente del JOIN con `Productos`).
-- Con dos filas del mismo producto con `fecha` idéntica (mismo segundo), el precio actual es la fila de `id` máximo (desempate `ORDER BY fecha ASC, id ASC`): el veredicto es determinista e independiente del orden en que SQLite devuelva las filas.
-- Con una caída < 15 % (o con precio actual igual o mayor que la referencia), `analizar_oferta` devuelve el veredicto con `es_oferta: False` y `caida_porcentual: 0.0` o positivo pequeño, distinguiendo claramente "no es oferta" de "sin datos" (que es `None`).
-- Umbral en frontera: caída exacta del 15 % se marca como oferta (comparación con `>=`).
-- Historial con un solo registro, historial vacío, producto inexistente, `asin` vacío/no-str, `conn` nulo/cerrada y `precio_referencia <= 0` devuelven `None` con aviso por consola, sin lanzar excepción (en particular, sin `ZeroDivisionError`).
-- El análisis se realiza exclusivamente sobre `precio_usd`; las filas con `moneda_local` distinta (filas con COP real vs *fallback* USD) no distorsionan el cálculo.
-- El módulo es de solo lectura: repetir el análisis N veces no altera ninguna tabla ni duplica filas (idempotencia, §3 de la Constitución).
-- `analizar_productos` recorre varios productos vía `obtener_productos_con_historial`, devuelve solo veredictos (sin `None` intercalados) y un fallo en uno no impide el veredicto de los restantes.
-- `py_compile` limpio y batería `pytest` aislada en verde (BD en `tmp_path` con `init_sqlite_db()`, sin red, sin `tracker.db` real); si todo pasa, temporales y cachés se eliminan conforme §6.4 de `AGENTS.md`.
+- Existe `services/analizador.py` con `obtener_precio_referencia`, `calcular_caida`, `_analizar_por_id`, `analizar_oferta` y `analizar_productos`, todos con tipado explícito, nombres en español y tipo de retorno respetado en cada rama.
+- `config/settings.py` expone `UMBRAL_CAIDA_PRECIO` como única constante de umbral, y el analizador la consume por importación, sin definir una constante propia.
+- Con `precio_referencia_usd` de 100.00 y precio actual de 85.00, el veredicto trae `caida_porcentual` igual a 0.15 y `es_oferta: True`, porque la comparación es `>=` cruda contra el umbral y ese par se cumple en coma flotante.
+- Con una caída inferior al 15 %, o con el precio actual igual o mayor que la referencia, el veredicto trae `es_oferta: False` y `caida_porcentual` igual a `0.0` o positiva pequeña, resultado distinguible del `None` de "sin datos".
+- `obtener_precio_referencia([100, 0, 90])` devuelve 100.0 y una lista cuya totalidad de elementos es no numérica o `<= 0` devuelve `None`, porque el descarte ocurre en el único punto de filtrado de la función pura.
+- Un historial de precios `{100, 0, 90}` tomando `90` como precio actual produce `precio_referencia_usd` 100.0 y `caida_porcentual` 0.1, porque las filas de precio inválido se descartan antes de calcular el mínimo.
+- Con dos filas del mismo producto que comparten `fecha`, `obtener_ultimo_registro` y el analizador devuelven el mismo precio actual, y el veredicto se repite idéntico en ejecuciones sucesivas.
+- `conn` inválida, `asin` no `str` o vacío, producto inexistente, historial vacío, historial de un solo registro, conjunto previo sin precios válidos y precio actual no positivo (`<= 0`) hacen que `analizar_oferta` devuelva `None` con aviso por consola y sin lanzar excepción, en particular sin `ZeroDivisionError`.
+- Cualquier `sqlite3.Error` de lectura hace que `analizar_oferta` devuelva `None` con aviso, que el lote omita ese producto y continúe con el siguiente, y en ningún caso se degrada a un veredicto con `es_oferta: False`.
+- Filas con `moneda_local` COP y filas con *fallback* USD mezcladas en el mismo producto producen el mismo veredicto que una serie homogénea, porque solo se lee `precio_usd` y no se promete nada sobre monedas distintas de USD.
+- Repetir `analizar_oferta` y `analizar_productos` varias veces deja las tres tablas con los mismos conteos, sin `commit`, `rollback`, `close` ni sentencias de escritura.
+- `analizar_productos` recorre varios productos vía `obtener_productos_con_historial`, descarta con aviso los `asin` nulos, devuelve veredictos parciales cuando alguno se descarta o falla y devuelve `[]` únicamente cuando ninguna entrada produce veredicto (conexión inválida o todos los productos descartados); nunca devuelve `None` ni `None` intercalados, y usa las mismas claves que el camino individual.
+- `python services/analizador.py <ASIN>` y `python -m services.analizador <ASIN>` imprimen el veredicto sobre una conexión `mode=ro` abierta con la ruta de `settings.DB_PATH_TRACKER`, y cuando el archivo no existe el modo script avisa y sale sin crear ni modificar `database/tracker.db`.
