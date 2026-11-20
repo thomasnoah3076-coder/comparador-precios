@@ -135,9 +135,9 @@ Ejecuta siempre desde la **raíz del proyecto** con `-m`: los módulos se import
 Para usar el conversor desde otro script:
 
 ```python
-from services.currency import convertir_moneda
+from services.divisas import convertir_moneda
 
-convertir_moneda(100, "USD", "COP")   # solo USD ↔ COP; si falla la API devuelve el monto original
+convertir_moneda(100, "USD", "COP")  # solo USD ↔ COP; si falla la API devuelve el monto original
 ```
 
 ## Problemas frecuentes

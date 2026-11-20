@@ -46,7 +46,7 @@ Flujo de comportamiento:
 
 ### Subtarea 2.1: `convertir_a_moneda_local` — par precio/moneda para persistir
 Flujo de comportamiento:
-1. Importar `DEFAULT_CURRENCY` desde `config.settings` dentro de `services/currency.py`.
+1. Importar `DEFAULT_CURRENCY` desde `config.settings` dentro de `../../services/divisas.py`.
 2. Si `DEFAULT_CURRENCY` es `None` o `""`, imprimir el aviso de conversión no disponible y retornar `(monto, moneda_origen)` sin acceder a la red.
 3. Invocar `convertir_moneda(monto, moneda_origen, DEFAULT_CURRENCY)`, que ya degrada devolviendo el monto cuando la pareja no está soportada o la API falla.
 4. Aplicar la regla de verdad: si el valor convertido es igual a `monto`, retornar `(monto, moneda_origen)` como fallback honesto.
@@ -184,7 +184,7 @@ Flujo de comportamiento:
 
 ### Subtarea 7.4: Comprobación del ciclo completo, bordes de fecha y limpieza
 Flujo de comportamiento:
-1. Ejecutar `py_compile` sobre `../../database/esquema.py`, `services/currency.py`, `scrapers/BaseScraper.py` y `main.py`.
+1. Ejecutar `py_compile` sobre `../../database/esquema.py`, `../../services/divisas.py`, `scrapers/BaseScraper.py` y `main.py`.
 2. Fijar la ruta temporal con `monkeypatch.setattr(database.schema, "DB_PATH_TRACKER", str(tmp_path / "tracker.db"))` y abrir la conexión de prueba.
 3. Parchear el destino real con `monkeypatch.setattr` sobre `scrapers.AmazonScraper.AmazonScraper.extraer_datos` o sobre el atributo homónimo de la instancia bajo prueba, que es `AmazonScraper` y no `BaseScraper`: la subclase sobrescribe el método, así que parchear `BaseScraper.extraer_datos` no intercepta `self.extraer_datos(url)` y la prueba navegaría de verdad a Amazon. Ejecutar `AmazonScraper(conn).obtener_datos` con la base de datos temporal y `services.currency.DEFAULT_CURRENCY` anulado, verificando el origen `scraping` y las filas persistidas con el par de moneda de origen.
 4. Ejecutar `obtener_datos` una segunda vez el mismo día, con el mismo mock y `DEFAULT_CURRENCY` anulado, y verificar `origen` igual a `base_de_datos` sin nueva navegación ni nueva escritura.
