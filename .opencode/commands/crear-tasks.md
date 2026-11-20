@@ -90,17 +90,21 @@ El Planner la adapta al proyecto y a las reglas de la constitución.
 ## Dependencias y Arquitectura
 - **Librerías:** [Lista de librerías]
 - **Objetos / Modelos:** [Lista de objetos principales]
-- **Métodos Globales:** [Lista de métodos clave]
+- **Métodos implementados:** 
+  - [Nombre de archivo]:
+    - [Lista de métodos que implementa]
 
-## Tarea Principal 1: [Nombre de la Tarea]
+## Tarea Principal 1: [Nombre de la Tarea- Descripcion breve de su proposito general.]
 
 ### Subtarea 1.1: [Nombre de la Subtarea y método asociado]
+[Que hace el metodo de forma clara, sencilla y en menos de una linea.]
 Flujo de comportamiento:
 - [ ] 1. [Paso técnico y claro]
 - [ ] 2. [Paso técnico y claro]
 - [ ] 3. [Paso técnico y claro]
 
 ### Subtarea 1.2: [Nombre de la Subtarea y método asociado]
+[Que hace el metodo de forma clara, sencilla y en menos de una linea.]
 Flujo de comportamiento:
 - [ ] 1. [Paso técnico y claro]
 

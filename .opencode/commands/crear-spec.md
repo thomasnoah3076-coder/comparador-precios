@@ -75,17 +75,17 @@ El Planner la adapta siempre a las reglas de la constitución.
 # Especificación: [Nombre de la Funcionalidad]
  
 ## 1. Objetivo (El Qué)
-[Descripción técnica y concisa de lo que se va a implementar]
+[Descripción clara y concisa de lo que se va a implementar]
  
 ## 2. Motivación (El Por Qué)
-[Justificación técnica o de negocio. Beneficios esperados]
+[Justificación técnica o de negocio en menos de tres lineas. Beneficios esperados en formato de lista (solo los beneficios sin descripción o justificación.)]
  
 ## 3. Propuesta Técnica
-- **Componentes / Objetos:** [Clases, modelos o componentes nuevos o modificados]
-- **Métodos Principales:** [Firmas de funciones clave y su propósito]
-- **Librerías / Dependencias:** [Dependencias necesarias para la implementación]
-- **Flujo de Datos:** [Cómo interactúan los componentes]
+- **Componentes / Objetos:** [Clases, modelos o componentes nuevos o modificados en un listado]
+- **Métodos Principales:** [Nombres de funciones clave y su propósito en menos de una linea]
+- **Librerías / Dependencias:** [Dependencias necesarias para la implementación en un listado]
+- **Flujo de Datos:** [Cómo interactúan los componentes con diagrama de flujo simple]
  
 ## 4. Criterios de Aceptación
-- [Condición verificable que demuestra que la funcionalidad está completa]
+- [Condiciones verificables que demuestra que la funcionalidad está completa con lenguaje claro y entendible.]
 ```

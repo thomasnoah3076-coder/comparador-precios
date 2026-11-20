@@ -81,12 +81,12 @@ El Planner la adapta siempre a las reglas de la constitución.
 [Estrategia de implementación en pocas líneas]
 
 ## 2. Componentes y Dependencias
-- **Librerías:** [Lista con propósito de cada una]
-- **Objetos / Modelos:** [Lista con responsabilidad de cada uno]
-- **Métodos Clave:** [Firma y propósito]
+- **Librerías:** [Lista con propósito de cada una en menos de una linea]
+- **Objetos / Modelos:** [Lista con la responsabilidad de cada uno en menos de uno o dos lineas]
+- **Métodos Clave:** [Firma y propósito en menos de uno o dos lineas]
 
 ## 3. Decisiones de Diseño
-- **[Decisión]:** [Alternativa descartada y razón]
+- **[Decisión]:** [Alternativas descartadas y razón descriptiva corta y clara]
 
 ## 4. Fases de Implementación
 1. [Fase y orden de dependencia respecto a las demás]
