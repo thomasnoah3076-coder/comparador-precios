@@ -67,10 +67,13 @@ def ya_se_consulto_hoy(conn: sqlite3.Connection, product_id: int | None) -> bool
 
 
 def obtener_ultimo_registro(conn :sqlite3.Connection, product_id: int | None) -> dict:
+    """
+    Obtiene el ultimo registro de datos de un producto especifico en función de su id.
+    """
     cursor = conn.execute('''
         SELECT 
             p.titulo,
-            (SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1) AS precio,
+            (SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC, id DESC LIMIT 1) AS precio,
             'USD' AS moneda,
             p.url,
             p.vendedor,
@@ -157,8 +160,9 @@ class ContratoDatos:
 
 
 def buscar_id_producto (conn: sqlite3.Connection, asin: str ) -> int | None:
-    """ Busca él id de un producto en la base de datos, con base en su codigo asin (str).
-    Ejecuta una consulta a la base de datos, verifica si él id existe y lo retorna; de lo contrario retorna None."""
+    """
+    Busca él id de un producto en la base de datos, con base en su codigo asin (str).
+    """
     cursor = conn.cursor()
     cursor.execute("SELECT Productos.id FROM Productos WHERE asin = ?", (asin,))
     producto_id = cursor.fetchone()
