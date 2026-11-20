@@ -38,27 +38,27 @@ Flujo de comportamiento:
 
 ### Subtarea 2.3: `obtener_ultimo_registro` — desempate temporal alineado al analizador
 Flujo de comportamiento:
-- [ ] 1. Localizar en `obtener_ultimo_registro` la subconsulta que sirve el precio: `SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1`.
-- [ ] 2. Añadir el desempate `id DESC` a esa subconsulta, quedando `ORDER BY fecha DESC, id DESC LIMIT 1`, el mismo criterio de `obtener_historial_precios` leído en sentido inverso cuando dos filas comparten `fecha`.
-- [ ] 3. No modificar las subconsultas de `Metricas_Vendedor` (`total_ventas` y `calificacion_promedio`), ni las columnas servidas, ni el contrato de siete claves con moneda `"USD"`.
-- [ ] 4. No alterar las funciones de escritura (`obtener_o_crear_producto`, `insertar_historial_precio`, `insertar_metricas_vendedor`, `guardar_datos_producto`) ni el esquema de las tres tablas.
+- [x] 1. Localizar en `obtener_ultimo_registro` la subconsulta que sirve el precio: `SELECT precio_usd FROM Historial_Precios WHERE producto_id = p.id ORDER BY fecha DESC LIMIT 1`.
+- [x] 2. Añadir el desempate `id DESC` a esa subconsulta, quedando `ORDER BY fecha DESC, id DESC LIMIT 1`, el mismo criterio de `obtener_historial_precios` leído en sentido inverso cuando dos filas comparten `fecha`.
+- [x] 3. No modificar las subconsultas de `Metricas_Vendedor` (`total_ventas` y `calificacion_promedio`), ni las columnas servidas, ni el contrato de siete claves con moneda `"USD"`.
+- [x] 4. No alterar las funciones de escritura (`obtener_o_crear_producto`, `insertar_historial_precio`, `insertar_metricas_vendedor`, `guardar_datos_producto`) ni el esquema de las tres tablas.
 
 ## Tarea Principal 3: Funciones puras del analizador
 
 ### Subtarea 3.1: encabezado de `services/analizador.py` — imports y arranque de ruta condicionado
 Flujo de comportamiento:
-- [ ] 1. Crear `services/analizador.py` e importar primero solo la stdlib: `sqlite3`, `argparse`, `sys` y `Path` de `pathlib`; los hints de las firmas usan los genéricos nativos (`list[float]`, `float | None`, `dict | None`, `list[dict]`) y no requieren `import typing`. Las librerías del módulo son exactamente esas cuatro: el archivo no contiene `import typing` ni ninguna referencia a `typing.`, de modo que la mención de `typing` en `spec.md` §3 queda sustituida por esta lista.
-- [ ] 2. Colocar inmediatamente después, y **antes** de cualquier import absoluto del proyecto, el arranque de ruta condicionado: `if __package__ in (None, ""):` con `raiz = Path(__file__).resolve().parent.parent` e inserción idempotente `if str(raiz) not in sys.path: sys.path.insert(0, str(raiz))`.
-- [ ] 3. Importar después del guard los módulos del proyecto: `from config import settings`, `from config.settings import UMBRAL_CAIDA_PRECIO` y `from database.schema import buscar_id_producto, obtener_historial_precios, obtener_productos_con_historial`.
-- [ ] 4. No definir ninguna constante de umbral local, ni importar Playwright, `requests` o `services.currency`; `services.currency` se carga solo de forma transitiva desde `database.schema` y el analizador no invoca la conversión de moneda.
-- [ ] 5. Declarar las firmas con los genéricos nativos explícitos en todas las ramas de retorno (`list[float]`, `float | None`, `dict | None`, `list[dict]`), sin `import typing`, según §2 de la Constitución.
+- [x] 1. Crear `services/analizador.py` e importar primero solo la stdlib: `sqlite3`, `argparse`, `sys` y `Path` de `pathlib`; los hints de las firmas usan los genéricos nativos (`list[float]`, `float | None`, `dict | None`, `list[dict]`) y no requieren `import typing`. Las librerías del módulo son exactamente esas cuatro: el archivo no contiene `import typing` ni ninguna referencia a `typing.`, de modo que la mención de `typing` en `spec.md` §3 queda sustituida por esta lista.
+- [x] 2. Colocar inmediatamente después, y **antes** de cualquier import absoluto del proyecto, el arranque de ruta condicionado: `if __package__ in (None, ""):` con `raiz = Path(__file__).resolve().parent.parent` e inserción idempotente `if str(raiz) not in sys.path: sys.path.insert(0, str(raiz))`.
+- [x] 3. Importar después del guard los módulos del proyecto: `from config import settings`, `from config.settings import UMBRAL_CAIDA_PRECIO` y `from database.schema import buscar_id_producto, obtener_historial_precios, obtener_productos_con_historial`.
+- [x] 4. No definir ninguna constante de umbral local, ni importar Playwright, `requests` o `services.currency`; `services.currency` se carga solo de forma transitiva desde `database.schema` y el analizador no invoca la conversión de moneda.
+- [x] 5. Declarar las firmas con los genéricos nativos explícitos en todas las ramas de retorno (`list[float]`, `float | None`, `dict | None`, `list[dict]`), sin `import typing`, según §2 de la Constitución.
 
 ### Subtarea 3.2: `obtener_precio_referencia` — mínimo del historial previo
 Flujo de comportamiento:
-- [ ] 1. Declarar `def obtener_precio_referencia(precios: list[float]) -> float | None` como función pura: sin conexión, sin archivos, sin `print` y sin leer `UMBRAL_CAIDA_PRECIO`.
-- [ ] 2. Retornar temprano `None` cuando `precios` esté vacío, porque no existe historial previo contra el que comparar.
-- [ ] 3. Retornar `min(precios)` en la rama con datos, con tipo explícito `float | None` en ambos caminos.
-- [ ] 4. No mutar la lista recibida: el llamador reutiliza las filas del historial para el precio actual.
+- [x] 1. Declarar `def obtener_precio_referencia(precios: list[float]) -> float | None` como función pura: sin conexión, sin archivos, sin `print` y sin leer `UMBRAL_CAIDA_PRECIO`.
+- [x] 2. Retornar temprano `None` cuando `precios` esté vacío, porque no existe historial previo contra el que comparar.
+- [x] 3. Retornar `min(precios)` en la rama con datos, con tipo explícito `float | None` en ambos caminos.
+- [x] 4. No mutar la lista recibida: el llamador reutiliza las filas del historial para el precio actual.
 
 ### Subtarea 3.3: `calcular_caida` — caída porcentual con suelo cero
 Flujo de comportamiento:
