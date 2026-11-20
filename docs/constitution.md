@@ -30,3 +30,6 @@ El proyecto debe sobrevivir a los cambios estructurales de las tiendas web.
 
 *   **Aislamiento del Orquestador:** Las fallas de la web (timeouts, CAPTCHAs, cambios de diseño en Amazon) son inevitables. Estos errores deben capturarse mediante bloques `try-except` manejados. Un error en un producto no debe detener la evaluación del siguiente.
 *   **Degradación Elegante:** Si el orquestador detecta un error de red o la imposibilidad de encontrar un precio, el sistema debe registrar el incidente (log/print amigable) y devolver un valor por defecto o nulo de forma controlada, cerrando la sesión del navegador correctamente.
+
+## 5. Claridad de documentación
+Todos los archivos generados deben tener un lenguaje claro y fácil de entender tanto como para agentes de inteligencia artificial, desarrolladores y clientes de negocio.
